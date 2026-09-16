@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { IsArray, IsOptional, IsString, MinLength } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PlatformAdminGuard } from '../common/platform-admin.guard';
@@ -43,11 +52,16 @@ class CreateLeadDto {
   locale?: string;
 }
 
-@Controller('professionals')
+class OrgLeadActionDto {
+  @IsString()
+  organizationId!: string;
+}
+
+@Controller()
 export class ProfessionalLeadsController {
   constructor(private readonly leads: ProfessionalLeadsService) {}
 
-  @Get('directory')
+  @Get('professionals/directory')
   directory(
     @Query('locale') locale?: string,
     @Query('city') city?: string,
@@ -69,12 +83,12 @@ export class ProfessionalLeadsController {
     });
   }
 
-  @Get('services')
+  @Get('professionals/services')
   services() {
     return this.leads.listPublishedServiceListings();
   }
 
-  @Post('leads')
+  @Post('professionals/leads')
   createLead(@Body() dto: CreateLeadDto) {
     return this.leads.create({
       contactName: dto.contactName,
@@ -90,8 +104,37 @@ export class ProfessionalLeadsController {
   }
 
   @UseGuards(JwtAuthGuard, PlatformAdminGuard)
-  @Get('leads')
+  @Get('professionals/leads')
   listLeads() {
     return this.leads.list();
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('seller/professional-leads')
+  listMine(
+    @Req() req: { user: { userId: string } },
+    @Query('organizationId') organizationId: string,
+  ) {
+    return this.leads.listForOrganization(req.user.userId, organizationId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('seller/professional-leads/:publicId/claim')
+  claim(
+    @Req() req: { user: { userId: string } },
+    @Param('publicId') publicId: string,
+    @Body() dto: OrgLeadActionDto,
+  ) {
+    return this.leads.claim(req.user.userId, dto.organizationId, publicId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('seller/professional-leads/:publicId/close')
+  close(
+    @Req() req: { user: { userId: string } },
+    @Param('publicId') publicId: string,
+    @Body() dto: OrgLeadActionDto,
+  ) {
+    return this.leads.close(req.user.userId, dto.organizationId, publicId);
   }
 }

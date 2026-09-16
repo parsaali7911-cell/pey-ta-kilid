@@ -1,61 +1,210 @@
-import { randomUUID } from 'crypto';
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { ListingStatus, Prisma } from '@prisma/client';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ListingStatus, Prisma, ProfessionalLeadStatus } from '@prisma/client';
+import { OrgAccessService } from '../common/org-access.service';
 import { haversineDistanceKm } from '../geo/geo.contracts';
 import { resolveIranPlace, specialtyLabel } from '../geo/iran-place';
 import { PrismaService } from '../prisma/prisma.service';
 
-export type ProfessionalLead = {
-  publicId: string;
-  createdAt: number;
-  locale: string;
+export type CreateProfessionalLeadInput = {
+  locale?: string;
   contactName: string;
   contactEmail?: string | null;
   contactPhone?: string | null;
-  specialtyHints: string[];
+  specialtyHints?: string[];
   city?: string | null;
   countryCode?: string | null;
   notes?: string | null;
   sourceText?: string | null;
-  status: 'OPEN' | 'MATCHED' | 'CLOSED';
 };
-
-const leads = new Map<string, ProfessionalLead>();
 
 @Injectable()
 export class ProfessionalLeadsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly orgAccess: OrgAccessService,
+  ) {}
 
-  create(input: Omit<ProfessionalLead, 'publicId' | 'createdAt' | 'status'> & { status?: ProfessionalLead['status'] }) {
-    const publicId = randomUUID();
-    const lead: ProfessionalLead = {
-      publicId,
-      createdAt: Date.now(),
-      locale: input.locale || 'fa',
-      contactName: input.contactName,
-      contactEmail: input.contactEmail || null,
-      contactPhone: input.contactPhone || null,
-      specialtyHints: input.specialtyHints || [],
-      city: input.city || null,
-      countryCode: input.countryCode || null,
-      notes: input.notes || null,
-      sourceText: input.sourceText || null,
-      status: input.status || 'OPEN',
-    };
-    leads.set(publicId, lead);
-    return lead;
+  async create(input: CreateProfessionalLeadInput) {
+    const place = input.city ? resolveIranPlace(input.city) : null;
+    const lead = await this.prisma.professionalLead.create({
+      data: {
+        locale: input.locale || 'fa',
+        contactName: input.contactName,
+        contactEmail: input.contactEmail || null,
+        contactPhone: input.contactPhone || null,
+        specialtyHints: input.specialtyHints || [],
+        city: place?.city || input.city || null,
+        countryCode: (input.countryCode || place?.countryCode || 'IR').toUpperCase(),
+        notes: input.notes || null,
+        sourceText: input.sourceText || null,
+        status: ProfessionalLeadStatus.OPEN,
+      },
+    });
+    return this.toDto(lead);
   }
 
-  list(limit = 50) {
-    return [...leads.values()]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, limit);
+  async list(limit = 50) {
+    const rows = await this.prisma.professionalLead.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      include: {
+        matchedOrganization: { select: { id: true, name: true, slug: true } },
+      },
+    });
+    return rows.map((r) => this.toDto(r));
   }
 
-  get(publicId: string) {
-    const lead = leads.get(publicId);
+  async getByPublicId(publicId: string) {
+    const lead = await this.prisma.professionalLead.findUnique({
+      where: { publicId },
+      include: {
+        matchedOrganization: { select: { id: true, name: true, slug: true } },
+      },
+    });
     if (!lead) throw new NotFoundException('Lead not found');
-    return lead;
+    return this.toDto(lead);
+  }
+
+  /** Leads relevant to a professional org: open matches + claimed by this org. */
+  async listForOrganization(userId: string, organizationId: string, limit = 40) {
+    await this.orgAccess.requireSellerMember(userId, organizationId);
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: {
+        id: true,
+        isProfessional: true,
+        primarySpecialty: true,
+        facilities: {
+          where: { status: 'ACTIVE', isPublicLocation: true },
+          select: {
+            address: { select: { city: true, province: true } },
+          },
+        },
+        serviceAreas: {
+          where: { isActive: true },
+          select: { city: true, province: true },
+        },
+      },
+    });
+    if (!org) throw new NotFoundException('Organization not found');
+    if (!org.isProfessional) {
+      throw new BadRequestException('Organization is not professional');
+    }
+
+    const cities = new Set<string>();
+    const provinces = new Set<string>();
+    for (const f of org.facilities) {
+      if (f.address.city) cities.add(f.address.city.toLowerCase());
+      if (f.address.province) provinces.add(f.address.province.toLowerCase());
+    }
+    for (const a of org.serviceAreas) {
+      if (a.city) cities.add(a.city.toLowerCase());
+      if (a.province) provinces.add(a.province.toLowerCase());
+    }
+
+    const rows = await this.prisma.professionalLead.findMany({
+      where: {
+        OR: [
+          { matchedOrganizationId: organizationId },
+          {
+            status: ProfessionalLeadStatus.OPEN,
+            ...(org.primarySpecialty
+              ? {
+                  OR: [
+                    { specialtyHints: { isEmpty: true } },
+                    { specialtyHints: { has: org.primarySpecialty } },
+                  ],
+                }
+              : {}),
+          },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 120,
+      include: {
+        matchedOrganization: { select: { id: true, name: true, slug: true } },
+      },
+    });
+
+    const filtered = rows.filter((lead) => {
+      if (lead.matchedOrganizationId === organizationId) return true;
+      if (lead.status !== ProfessionalLeadStatus.OPEN) return false;
+      if (!lead.city) return true;
+      if (!cities.size && !provinces.size) return true;
+      const needle = lead.city.toLowerCase();
+      const place = resolveIranPlace(lead.city);
+      const placeCity = (place?.city || '').toLowerCase();
+      const placeProvince = (place?.province || '').toLowerCase();
+      for (const c of cities) {
+        if (c.includes(needle) || needle.includes(c)) return true;
+        if (placeCity && (c.includes(placeCity) || placeCity.includes(c))) return true;
+      }
+      for (const p of provinces) {
+        if (placeProvince && (p.includes(placeProvince) || placeProvince.includes(p))) return true;
+        if (p.includes(needle) || needle.includes(p)) return true;
+      }
+      return false;
+    });
+
+    return filtered.slice(0, limit).map((r) => this.toDto(r));
+  }
+
+  async claim(userId: string, organizationId: string, publicId: string) {
+    await this.orgAccess.requireSellerWriter(userId, organizationId);
+    const org = await this.prisma.organization.findUnique({ where: { id: organizationId } });
+    if (!org?.isProfessional) throw new BadRequestException('Organization is not professional');
+
+    const lead = await this.prisma.professionalLead.findUnique({ where: { publicId } });
+    if (!lead) throw new NotFoundException('Lead not found');
+    if (lead.status === ProfessionalLeadStatus.CLOSED) {
+      throw new BadRequestException('Lead is closed');
+    }
+    if (
+      lead.status === ProfessionalLeadStatus.MATCHED &&
+      lead.matchedOrganizationId &&
+      lead.matchedOrganizationId !== organizationId
+    ) {
+      throw new ForbiddenException('Lead already claimed by another organization');
+    }
+
+    const updated = await this.prisma.professionalLead.update({
+      where: { publicId },
+      data: {
+        status: ProfessionalLeadStatus.MATCHED,
+        matchedOrganizationId: organizationId,
+        matchedAt: lead.matchedAt || new Date(),
+      },
+      include: {
+        matchedOrganization: { select: { id: true, name: true, slug: true } },
+      },
+    });
+    return this.toDto(updated);
+  }
+
+  async close(userId: string, organizationId: string, publicId: string) {
+    await this.orgAccess.requireSellerWriter(userId, organizationId);
+    const lead = await this.prisma.professionalLead.findUnique({ where: { publicId } });
+    if (!lead) throw new NotFoundException('Lead not found');
+    if (lead.matchedOrganizationId && lead.matchedOrganizationId !== organizationId) {
+      throw new ForbiddenException('Lead belongs to another organization');
+    }
+    if (!lead.matchedOrganizationId) {
+      // Allow closing an open lead only after claiming, or claim+close in one step.
+      await this.claim(userId, organizationId, publicId);
+    }
+    const updated = await this.prisma.professionalLead.update({
+      where: { publicId },
+      data: { status: ProfessionalLeadStatus.CLOSED },
+      include: {
+        matchedOrganization: { select: { id: true, name: true, slug: true } },
+      },
+    });
+    return this.toDto(updated);
   }
 
   async listProfessionalOrgs(
@@ -189,10 +338,12 @@ export class ProfessionalLeadsService {
           const c = (a.city || '').toLowerCase();
           const p = (a.province || '').toLowerCase();
           if (cityNeedle && c && (c.includes(cityNeedle) || cityNeedle.includes(c))) return true;
-          if (provinceNeedle && p && (p.includes(provinceNeedle) || provinceNeedle.includes(p))) return true;
+          if (provinceNeedle && p && (p.includes(provinceNeedle) || provinceNeedle.includes(p))) {
+            return true;
+          }
           return false;
         });
-        return locHit || areaHit || (!o.locations.length && !o.serviceAreas.length ? false : false);
+        return locHit || areaHit;
       })
       .sort((a, b) => {
         if (a.distanceKm == null && b.distanceKm == null) return 0;
@@ -203,7 +354,6 @@ export class ProfessionalLeadsService {
       .slice(0, 60);
   }
 
-  /** Public directory of published professional-adjacent orgs that can sell services. */
   async listPublishedServiceListings(limit = 24) {
     const rows = await this.prisma.listing.findMany({
       where: {
@@ -239,5 +389,41 @@ export class ProfessionalLeadsService {
           }
         : null,
     }));
+  }
+
+  private toDto(lead: {
+    publicId: string;
+    createdAt: Date;
+    locale: string;
+    contactName: string;
+    contactEmail: string | null;
+    contactPhone: string | null;
+    specialtyHints: string[];
+    city: string | null;
+    countryCode: string | null;
+    notes: string | null;
+    sourceText: string | null;
+    status: ProfessionalLeadStatus;
+    matchedOrganizationId?: string | null;
+    matchedAt?: Date | null;
+    matchedOrganization?: { id: string; name: string; slug: string } | null;
+  }) {
+    return {
+      publicId: lead.publicId,
+      createdAt: lead.createdAt.getTime?.() ?? Number(lead.createdAt),
+      locale: lead.locale,
+      contactName: lead.contactName,
+      contactEmail: lead.contactEmail,
+      contactPhone: lead.contactPhone,
+      specialtyHints: lead.specialtyHints || [],
+      city: lead.city,
+      countryCode: lead.countryCode,
+      notes: lead.notes,
+      sourceText: lead.sourceText,
+      status: lead.status,
+      matchedOrganizationId: lead.matchedOrganizationId ?? null,
+      matchedAt: lead.matchedAt ? lead.matchedAt.getTime() : null,
+      matchedOrganization: lead.matchedOrganization ?? null,
+    };
   }
 }

@@ -15,8 +15,16 @@ import { apiUrl } from '@/lib/api';
 import type { Locale } from '@/lib/i18n-public';
 import { SellerListingWizard } from '@/components/seller/SellerListingWizard';
 import { SellerListingEditor } from '@/components/seller/SellerListingEditor';
+import { PROFESSIONAL_SPECIALTY_OPTIONS } from '@/lib/lexicon/specialties';
 
-type Org = { id: string; name: string; slug: string; canSell?: boolean; isProfessional?: boolean };
+type Org = {
+  id: string;
+  name: string;
+  slug: string;
+  canSell?: boolean;
+  isProfessional?: boolean;
+  primarySpecialty?: string | null;
+};
 type Facility = {
   id: string;
   name: string;
@@ -24,6 +32,24 @@ type Facility = {
   status: string;
   isPublicLocation?: boolean;
   address?: { city?: string; province?: string; countryCode?: string; line1?: string };
+};
+type ServiceArea = {
+  id: string;
+  name?: string | null;
+  city?: string | null;
+  province?: string | null;
+  radiusKm?: number | null;
+};
+type ProLead = {
+  publicId: string;
+  contactName: string;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  specialtyHints: string[];
+  city?: string | null;
+  notes?: string | null;
+  status: string;
+  createdAt?: number;
 };
 type ListingMedia = {
   id: string;
@@ -107,8 +133,12 @@ export default function SellerClient({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'overview' | 'facility' | 'listing' | 'commerce'>(
-    initialTab === 'facility' || initialTab === 'listing' || initialTab === 'commerce' || initialTab === 'overview'
+  const [tab, setTab] = useState<'overview' | 'facility' | 'listing' | 'commerce' | 'pro'>(
+    initialTab === 'facility' ||
+      initialTab === 'listing' ||
+      initialTab === 'commerce' ||
+      initialTab === 'overview' ||
+      initialTab === 'pro'
       ? initialTab
       : openWizard
         ? 'listing'
@@ -150,6 +180,11 @@ export default function SellerClient({
   const [listingMedia, setListingMedia] = useState<ListingMedia[]>([]);
   const [stockAdjust, setStockAdjust] = useState('10');
   const [editListingId, setEditListingId] = useState('');
+  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const [proLeads, setProLeads] = useState<ProLead[]>([]);
+  const [proSpecialty, setProSpecialty] = useState('installation');
+  const [areaCity, setAreaCity] = useState(initialCity || 'Tehran');
+  const [areaRadius, setAreaRadius] = useState('40');
   const refresh = useCallback(async () => {
     if (!getAccessToken()) {
       const qs = new URLSearchParams();
@@ -183,7 +218,7 @@ export default function SellerClient({
   const loadOrgData = useCallback(
     async (id: string) => {
       if (!id) return;
-      const [facs, lists, elig, ords] = await Promise.all([
+      const [facs, lists, elig, ords, areas, leads] = await Promise.all([
         apiAuthed<Facility[]>(`/seller/facilities?organizationId=${encodeURIComponent(id)}`),
         apiAuthed<Listing[]>(`/seller/listings?organizationId=${encodeURIComponent(id)}`),
         apiAuthed<typeof eligible>(`/seller/rfqs/eligible?organizationId=${encodeURIComponent(id)}`).catch(
@@ -192,14 +227,28 @@ export default function SellerClient({
         apiAuthed<typeof sellerOrders>(`/seller/orders?organizationId=${encodeURIComponent(id)}`).catch(
           () => [],
         ),
+        apiAuthed<ServiceArea[]>(`/seller/service-areas?organizationId=${encodeURIComponent(id)}`).catch(
+          () => [],
+        ),
+        apiAuthed<ProLead[]>(
+          `/seller/professional-leads?organizationId=${encodeURIComponent(id)}`,
+        ).catch(() => []),
       ]);
       setFacilities(facs || []);
       setListings(lists || []);
       setEligible(elig || []);
       setSellerOrders(ords || []);
+      setServiceAreas(areas || []);
+      setProLeads(leads || []);
     },
     [],
   );
+
+  const activeOrg = orgs.find((o) => o.id === orgId) || null;
+
+  useEffect(() => {
+    if (activeOrg?.primarySpecialty) setProSpecialty(activeOrg.primarySpecialty);
+  }, [activeOrg?.id, activeOrg?.primarySpecialty]);
 
   useEffect(() => {
     void (async () => {
@@ -351,6 +400,7 @@ export default function SellerClient({
       setOrgSlug('');
       await refresh();
       setOrgId(org.id);
+      if (asPro) setTab('pro');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
     } finally {
@@ -388,6 +438,90 @@ export default function SellerClient({
       setFacName('');
       await loadOrgData(orgId);
       setTab('listing');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveProSpecialty(e: FormEvent) {
+    e.preventDefault();
+    if (!orgId) return;
+    setBusy(true);
+    setError('');
+    try {
+      await apiAuthed(`/organizations/${orgId}/capabilities`, {
+        method: 'PATCH',
+        json: {
+          isProfessional: true,
+          primarySpecialty: proSpecialty,
+        },
+      });
+      setMsg(copy.pro_specialty_saved);
+      await refresh();
+      await loadOrgData(orgId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addServiceArea(e: FormEvent) {
+    e.preventDefault();
+    if (!orgId || !areaCity.trim()) return;
+    setBusy(true);
+    setError('');
+    try {
+      await apiAuthed('/seller/service-areas', {
+        method: 'POST',
+        json: {
+          organizationId: orgId,
+          city: areaCity.trim(),
+          countryCode: 'IR',
+          radiusKm: Number(areaRadius) || 40,
+        },
+      });
+      setMsg(copy.pro_area_added);
+      setAreaCity('');
+      await loadOrgData(orgId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function claimLead(publicId: string) {
+    if (!orgId) return;
+    setBusy(true);
+    setError('');
+    try {
+      await apiAuthed(`/seller/professional-leads/${publicId}/claim`, {
+        method: 'POST',
+        json: { organizationId: orgId },
+      });
+      setMsg(copy.pro_lead_claimed);
+      await loadOrgData(orgId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function closeLead(publicId: string) {
+    if (!orgId) return;
+    setBusy(true);
+    setError('');
+    try {
+      await apiAuthed(`/seller/professional-leads/${publicId}/close`, {
+        method: 'POST',
+        json: { organizationId: orgId },
+      });
+      setMsg(copy.pro_lead_closed);
+      await loadOrgData(orgId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
     } finally {
@@ -438,6 +572,11 @@ export default function SellerClient({
           <button type="button" className={tab === 'commerce' ? 'is-active' : ''} onClick={() => setTab('commerce')}>
             {copy.seller_tab_commerce}
           </button>
+          {activeOrg?.isProfessional ? (
+            <button type="button" className={tab === 'pro' ? 'is-active' : ''} onClick={() => setTab('pro')}>
+              {copy.seller_tab_pro}
+            </button>
+          ) : null}
         </nav>
 
         {error ? <p className="panel-err">{error}</p> : null}
@@ -747,6 +886,106 @@ export default function SellerClient({
               ))}
             </ul>
             {!sellerOrders.length ? <p className="panel-muted">{copy.seller_no_orders}</p> : null}
+          </section>
+        ) : null}
+
+        {tab === 'pro' ? (
+          <section className="panel-card">
+            <h2>{copy.pro_panel_title}</h2>
+            <p className="panel-muted">{copy.pro_panel_lead}</p>
+            {!orgId ? <p className="panel-muted">{copy.seller_need_org}</p> : null}
+            {!activeOrg?.isProfessional ? (
+              <p className="panel-muted">{copy.pro_panel_need_flag}</p>
+            ) : (
+              <>
+                <form className="panel-form" onSubmit={saveProSpecialty}>
+                  <label>
+                    {copy.pro_specialty}
+                    <select value={proSpecialty} onChange={(e) => setProSpecialty(e.target.value)}>
+                      {PROFESSIONAL_SPECIALTY_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {locale === 'en' ? opt.labelEn : opt.labelFa} / {opt.labelEn}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button className="mp-btn mp-btn--primary" type="submit" disabled={busy || !orgId}>
+                    {copy.pro_specialty_save}
+                  </button>
+                </form>
+
+                <h3 style={{ marginTop: '1.25rem' }}>{copy.pro_service_areas}</h3>
+                <ul className="panel-list">
+                  {serviceAreas.map((a) => (
+                    <li key={a.id}>
+                      <strong>{a.name || a.city || '—'}</strong>
+                      {a.province ? ` · ${a.province}` : ''}
+                      {a.radiusKm != null ? ` · ${a.radiusKm} km` : ''}
+                    </li>
+                  ))}
+                </ul>
+                {!serviceAreas.length ? <p className="panel-muted">{copy.pro_service_areas_empty}</p> : null}
+                <form className="panel-form" onSubmit={addServiceArea}>
+                  <div className="panel-grid-2">
+                    <label>
+                      {copy.seller_city}
+                      <input required value={areaCity} onChange={(e) => setAreaCity(e.target.value)} />
+                    </label>
+                    <label>
+                      {copy.pro_area_radius}
+                      <input value={areaRadius} onChange={(e) => setAreaRadius(e.target.value)} />
+                    </label>
+                  </div>
+                  <button className="mp-btn mp-btn--primary" type="submit" disabled={busy || !orgId}>
+                    {copy.pro_area_add}
+                  </button>
+                </form>
+
+                <h3 style={{ marginTop: '1.25rem' }}>
+                  {copy.pro_leads_inbox} ({proLeads.length})
+                </h3>
+                <p className="panel-muted">{copy.pro_leads_inbox_lead}</p>
+                <div className="panel-stack">
+                  {proLeads.map((lead) => (
+                    <article key={lead.publicId} className="panel-item">
+                      <h3>
+                        {lead.contactName} · {lead.status}
+                      </h3>
+                      <p className="panel-muted">
+                        {(lead.specialtyHints || []).join(', ') || '—'}
+                        {lead.city ? ` · ${lead.city}` : ''}
+                        {lead.contactPhone ? ` · ${lead.contactPhone}` : ''}
+                        {lead.contactEmail ? ` · ${lead.contactEmail}` : ''}
+                      </p>
+                      {lead.notes ? <p>{lead.notes}</p> : null}
+                      <div className="designer-actions">
+                        {lead.status === 'OPEN' ? (
+                          <button
+                            type="button"
+                            className="mp-btn mp-btn--primary"
+                            disabled={busy}
+                            onClick={() => void claimLead(lead.publicId)}
+                          >
+                            {copy.pro_lead_claim}
+                          </button>
+                        ) : null}
+                        {lead.status !== 'CLOSED' ? (
+                          <button
+                            type="button"
+                            className="mp-btn"
+                            disabled={busy}
+                            onClick={() => void closeLead(lead.publicId)}
+                          >
+                            {copy.pro_lead_close}
+                          </button>
+                        ) : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                {!proLeads.length ? <p className="panel-muted">{copy.pro_leads_empty}</p> : null}
+              </>
+            )}
           </section>
         ) : null}
       </div>

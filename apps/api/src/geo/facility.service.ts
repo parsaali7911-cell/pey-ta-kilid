@@ -213,14 +213,26 @@ export class FacilityService {
       this.geo.validateCoordinates(dto.centerPoint.latitude, dto.centerPoint.longitude);
     }
 
+    const place = dto.city ? resolveIranPlace(dto.city) : null;
+    const city = place?.city || dto.city;
+    const province = dto.province || place?.province;
+    const countryCode = dto.countryCode
+      ? this.geo.validateCountryCode(dto.countryCode)
+      : place?.countryCode || 'IR';
+    const centerPoint =
+      dto.centerPoint ||
+      (place
+        ? { latitude: place.latitude, longitude: place.longitude, accuracyM: 5000 }
+        : undefined);
+
     return this.prisma.$transaction(async (tx) => {
       let centerPointId: string | undefined;
-      if (dto.centerPoint) {
+      if (centerPoint) {
         const point = await tx.geoPoint.create({
           data: {
-            latitude: dto.centerPoint.latitude,
-            longitude: dto.centerPoint.longitude,
-            accuracyM: dto.centerPoint.accuracyM,
+            latitude: centerPoint.latitude,
+            longitude: centerPoint.longitude,
+            accuracyM: centerPoint.accuracyM,
           },
         });
         centerPointId = point.id;
@@ -228,15 +240,13 @@ export class FacilityService {
       return tx.serviceArea.create({
         data: {
           organizationId: dto.organizationId,
-          name: dto.name,
-          countryCode: dto.countryCode
-            ? this.geo.validateCountryCode(dto.countryCode)
-            : undefined,
+          name: dto.name || (province ? `${city}, ${province}` : city),
+          countryCode,
           region: dto.region,
-          province: dto.province,
-          city: dto.city,
+          province,
+          city,
           centerPointId,
-          radiusKm: dto.radiusKm,
+          radiusKm: dto.radiusKm ?? 40,
         },
         include: { centerPoint: true },
       });

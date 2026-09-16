@@ -39,6 +39,12 @@ enum ListingStatus {
   ARCHIVED
 }
 
+enum ProfessionalLeadStatus {
+  OPEN
+  MATCHED
+  CLOSED
+}
+
 enum MediaStatus {
   PENDING
   APPROVED
@@ -228,6 +234,7 @@ model Organization {
   media    MediaAsset[]
   facilities Facility[]
   serviceAreas ServiceArea[]
+  matchedLeads ProfessionalLead[]
   buyerRfqs  Rfq[] @relation("RfqBuyerOrg")
   sellerRfqTargets RfqTarget[] @relation("RfqSellerOrg")
   sellerQuotes Quote[] @relation("QuoteSellerOrg")
@@ -683,6 +690,32 @@ model ServiceArea {
 
   @@index([organizationId])
   @@index([countryCode, region, province, city])
+}
+
+/// Buyer requests for installers / trades — matched to professional orgs.
+model ProfessionalLead {
+  id                    String                 @id @default(cuid())
+  publicId              String                 @unique @default(cuid())
+  locale                String                 @default("fa")
+  contactName           String
+  contactEmail          String?
+  contactPhone          String?
+  specialtyHints        String[]               @default([])
+  city                  String?
+  countryCode           String?
+  notes                 String?
+  sourceText            String?
+  status                ProfessionalLeadStatus @default(OPEN)
+  matchedOrganizationId String?
+  matchedAt             DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  matchedOrganization Organization? @relation(fields: [matchedOrganizationId], references: [id])
+
+  @@index([status, createdAt])
+  @@index([matchedOrganizationId])
+  @@index([city])
 }
 
 /// AI translation cache/job state — LocalizedContent remains the serving store.

@@ -116,7 +116,7 @@ export default function ProfessionalsClient({
       setMsg(copy.pro_org_created);
       setOrgName('');
       setOrgSlug('');
-      router.push(`/${locale}/seller?onboard=1&city=${encodeURIComponent(city)}`);
+      router.push(`/${locale}/seller?tab=pro&city=${encodeURIComponent(city)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
     } finally {
