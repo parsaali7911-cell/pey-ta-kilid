@@ -1075,6 +1075,18 @@ async function seedLocales() {
 }
 
 async function seedMarkets() {
+  await prisma.pricingSettings.upsert({
+    where: { key: 'default' },
+    create: {
+      key: 'default',
+      marginPercent: 5,
+      flatFee: 0,
+    },
+    update: {
+      marginPercent: 5,
+    },
+  });
+
   await prisma.market.upsert({
     where: { code: MarketCode.IRAN },
     create: {

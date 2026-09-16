@@ -4,8 +4,6 @@ import { apiGet } from '@/lib/api';
 import { isLocale, t, type Locale } from '@/lib/i18n-public';
 import { MarketplaceHero } from '@/components/home/marketplace/MarketplaceHero';
 import { MarketplaceEntryPaths } from '@/components/home/marketplace/MarketplaceEntryPaths';
-import { MarketplaceDiscovery } from '@/components/home/marketplace/MarketplaceDiscovery';
-import { MarketplaceNeedAdvisor } from '@/components/home/marketplace/MarketplaceNeedAdvisor';
 import { MarketplaceListingCard } from '@/components/home/marketplace/MarketplaceListingCard';
 
 export const dynamic = 'force-dynamic';
@@ -63,7 +61,7 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
   const listings =
     (await apiGet<PublicListing[]>(`/catalog/listings?locale=${encodeURIComponent(locale)}`)) ||
     [];
-  const featured = listings.slice(0, 8);
+  const featured = listings.slice(0, 6);
   const heroSource = featured[0];
   const spotlight = heroSource
     ? {
@@ -75,10 +73,18 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
     : null;
 
   return (
-    <div className="mp-home">
+    <div className="mp-home mp-home--hub">
       <MarketplaceHero copy={copy} locale={locale} spotlight={spotlight} />
+
+      <section className="mp-hub-trust" aria-label={copy.mp_hub_trust_label}>
+        <div className="mp-hub-trust__inner">
+          <p>{copy.mp_hub_trust_1}</p>
+          <p>{copy.mp_hub_trust_2}</p>
+          <p>{copy.mp_hub_trust_3}</p>
+        </div>
+      </section>
+
       <MarketplaceEntryPaths locale={locale} copy={copy} />
-      <MarketplaceDiscovery locale={locale} copy={copy} />
 
       <section className="mp-featured" aria-labelledby="mp-featured-title">
         <div className="mp-featured__inner" style={{ padding: '0 var(--mp-x) 2.5rem' }}>
@@ -89,7 +95,15 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
           {featured.length === 0 ? (
             <div className="pk-empty">{copy.no_results}</div>
           ) : (
-            <div className="mp-featured__grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))', gap: '1.1rem', marginTop: '1.25rem' }}>
+            <div
+              className="mp-featured__grid"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))',
+                gap: '1.1rem',
+                marginTop: '1.25rem',
+              }}
+            >
               {featured.map((listing) => (
                 <MarketplaceListingCard
                   key={listing.slug}
@@ -116,8 +130,6 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
           </div>
         </div>
       </section>
-
-      <MarketplaceNeedAdvisor locale={locale} copy={copy} />
     </div>
   );
 }

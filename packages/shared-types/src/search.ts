@@ -32,6 +32,10 @@ export type SearchFilters = {
   facilityProximity?: FacilityProximityRequirement | null;
   listingIds?: string[];
   text?: string | null;
+  /** Soft prefer facility city match (buyer delivery city). */
+  preferredCity?: string | null;
+  /** Sort / boost toward lowest displayPrice. */
+  preferCheapest?: boolean;
 };
 
 export type SearchScoreComponentKey =
@@ -58,10 +62,10 @@ export const DEFAULT_SEARCH_RANKING_WEIGHTS: SearchRankingWeights = {
   category: 20,
   attribute: 20,
   availability: 15,
-  price: 10,
+  price: 25,
   moq: 5,
   leadTime: 3,
-  location: 10,
+  location: 30,
   listingHint: 30,
 };
 

@@ -129,6 +129,7 @@ export function parseNaturalLanguageRules(input: RuleParseInput): StructuredRequ
   const facilityProximity = extractFacilityProximity(rawText);
   const listingIdHints = extractListingIds(rawText);
   const attributeFilters = extractAttributes(rawText);
+  const preferCheapest = wantsCheapest(rawText);
   const categorySlugHints = categoryHints
     .map((h) => CATEGORY_SLUG_BY_HINT[h])
     .filter((s): s is string => Boolean(s));
@@ -199,6 +200,7 @@ export function parseNaturalLanguageRules(input: RuleParseInput): StructuredRequ
     confidence,
     missingFields,
     rawText: rawText || null,
+    preferCheapest,
   };
 }
 
@@ -230,8 +232,12 @@ function classifyJourney(
     /(?:^|[\s،,])(?:من\s+)?(?:یک\s+)?(?:فروشنده|تأمین[\u200c\s]*کننده|تامین[\u200c\s]*کننده|تولیدکننده|کارخانه)(?:\s+ی|\s+یِ)?/i.test(
       rawText,
     ) ||
+    /بفروش(?:م|یم|د)|فروش\s*می[\u200c]?کن|می[\u200c]?خوا(?:م|هم)\s+.+\s*بفروش|ثبت\s*کالا|ورود\s*محصول|لیست(?:ینگ)?\s*(?:جدید|کن)/i.test(
+      rawText,
+    ) ||
     /\bi\s+am\s+(?:a\s+|an\s+)?(?:seller|supplier|manufacturer|factory)\b/i.test(normalized) ||
-    /\bwe\s+(?:sell|supply|manufacture)\b/i.test(normalized);
+    /\bwe\s+(?:sell|supply|manufacture)\b/i.test(normalized) ||
+    /\b(?:want\s+to\s+sell|selling|list\s+(?:my\s+)?product)\b/i.test(normalized);
 
   const proTradeWord =
     /(?:گچ|سرامیک|کاشی|برق|لوله|سنگ|کناف|کفپوش|پارکت|ایزوگام|عایق|پنجره|کابینت)[\u200c\s]*کار|نصاب|معمار|پیمانکار|نقاش|متخصص|بنا|نجار|جوشکار|آهنگر|لول[هه‌][\u200c\s]*کش|آرماتوربند|داربست/i.test(
@@ -351,6 +357,12 @@ function classifyIntent(
 
 function hasDesignCue(normalized: string): boolean {
   return DESIGN_HINTS.some((h) => normalized.includes(h));
+}
+
+function wantsCheapest(text: string): boolean {
+  return /ارزان(?:\s*ترین)?|کمترین\s*قیمت|کم[\u200c\s]*ترین|ارزون|نرخ\s*پایین|cheapest|lowest\s*price|best\s*price|min(?:imum)?\s*price|least\s*expensive/i.test(
+    text,
+  );
 }
 
 function scoreHints(normalized: string, hints: string[]): number {
@@ -530,6 +542,8 @@ function extractAttributes(text: string): Record<string, string | number | boole
 
   if (/\bupvc\b|upcvc|یو[\u200c\s]*پی[\u200c\s]*وی[\u200c\s]*سی/i.test(text)) {
     attrs.material = 'upvc';
+  } else if (/چوب(?:ی)?|wooden|solid\s*wood|\bmdf\b|ام[\u200c\s]*دی[\u200c\s]*اف/i.test(text)) {
+    attrs.material = 'wood';
   }
 
   if (/رنگ\s*روغن|\boil\s*paint\b/i.test(text)) {

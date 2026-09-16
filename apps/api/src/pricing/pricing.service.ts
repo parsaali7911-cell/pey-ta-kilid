@@ -29,7 +29,7 @@ export class PricingService {
     return this.prisma.pricingSettings.create({
       data: {
         key: 'default',
-        marginPercent: 0,
+        marginPercent: 5,
         flatFee: 0,
         roundingMode: RoundingMode.NONE,
       },

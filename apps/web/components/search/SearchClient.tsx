@@ -7,11 +7,20 @@ import type {
   RankedRecommendation,
   SearchQuery,
 } from '@peytakilid/shared-types';
-import { apiPostClient, SEARCH_QUERY_STORAGE_KEY, SEARCH_TEXT_STORAGE_KEY } from '@/lib/api';
+import { apiPostClient, apiUrl, SEARCH_QUERY_STORAGE_KEY, SEARCH_TEXT_STORAGE_KEY } from '@/lib/api';
 import { MarketplaceListingCard } from '@/components/home/marketplace/MarketplaceListingCard';
 import { SiteSearchBar } from '@/components/search/SiteSearchBar';
 import { isLocale, t, type Locale } from '@/lib/i18n-public';
 import { loadVisualSearchPayload, type VisualSearchPayload } from '@/lib/visual-search';
+
+type ProOrg = {
+  id: string;
+  name: string;
+  specialty?: string | null;
+  specialtyLabel?: string | null;
+  distanceKm?: number | null;
+  locations?: Array<{ city?: string; province?: string }>;
+};
 
 export function SearchClient({
   locale,
@@ -33,8 +42,10 @@ export function SearchClient({
   const [photo, setPhoto] = useState<VisualSearchPayload | null>(null);
   const [intentNext, setIntentNext] = useState<string | null>(null);
   const [intentInfo, setIntentInfo] = useState<string | null>(null);
-  const [extracted, setExtracted] = useState<Record<string, unknown> | null>(null);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [preferCheapest, setPreferCheapest] = useState(false);
   const [deepLink, setDeepLink] = useState<string | null>(null);
+  const [pros, setPros] = useState<ProOrg[]>([]);
 
   useEffect(() => {
     if (initialPhotoMode) {
@@ -57,15 +68,8 @@ export function SearchClient({
       if (city) bits.push(`${copy.seller_city}: ${city}`);
       if (payload.categorySlug) bits.push(payload.categorySlug);
       setIntentInfo(bits.join(' · '));
+      setSummary(bits.join(' · '));
       setIntentNext('search');
-      setExtracted({
-        intent: 'PRODUCT',
-        city: city || null,
-        categorySlug: payload.categorySlug || null,
-        caption: payload.caption || null,
-        tone: payload.tone || null,
-        hex: payload.hex || null,
-      });
       setHits(
         payload.results
           .filter((r) => r.slug && r.title)
@@ -89,6 +93,7 @@ export function SearchClient({
             },
           })),
       );
+      if (city) void loadPros(city, undefined);
       return;
     }
 
@@ -111,6 +116,20 @@ export function SearchClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery, initialPhotoMode, locale]);
 
+  async function loadPros(city?: string, specialty?: string) {
+    try {
+      const qs = new URLSearchParams({ locale: ui });
+      if (city) qs.set('city', city);
+      if (specialty) qs.set('specialty', specialty);
+      const dir = await fetch(apiUrl(`/professionals/directory?${qs.toString()}`)).then((r) =>
+        r.json(),
+      );
+      setPros(Array.isArray(dir) ? dir.slice(0, 4) : []);
+    } catch {
+      setPros([]);
+    }
+  }
+
   async function runIntent(text: string) {
     setBusy(true);
     setError(null);
@@ -118,7 +137,10 @@ export function SearchClient({
     setPhoto(null);
     setIntentNext(null);
     setIntentInfo(null);
-    setExtracted(null);
+    setSummary(null);
+    setPreferCheapest(false);
+    setDeepLink(null);
+    setPros([]);
     setNeedText(text);
     try {
       const data = await apiPostClient<HomepageNaturalLanguageResponse>('/intent/nl', {
@@ -128,19 +150,7 @@ export function SearchClient({
       });
       sessionStorage.setItem(SEARCH_TEXT_STORAGE_KEY, text);
       setIntentNext(data.next);
-      setExtracted({
-        intent: data.intent.intent,
-        journey: data.intent.requirements.journey,
-        confidence: data.intent.confidence,
-        categoryHints: data.intent.requirements.categoryHints,
-        categorySlugHints: data.intent.requirements.categorySlugHints,
-        attributeFilters: data.intent.requirements.attributeFilters,
-        quantity: data.intent.requirements.quantity,
-        uomCode: data.intent.requirements.uomCode,
-        specialtyHints: data.intent.requirements.specialtyHints,
-        location: data.intent.requirements.location,
-        missingFields: data.intent.requirements.missingFields,
-      });
+      setPreferCheapest(Boolean(data.intent.requirements.preferCheapest));
 
       const city = data.route?.city || data.intent.requirements.location?.city || '';
       const province =
@@ -149,6 +159,25 @@ export function SearchClient({
         data.route?.specialty || data.intent.requirements.specialtyHints?.[0] || '';
       const categorySlug =
         data.route?.categorySlug || data.intent.requirements.categorySlugHints?.[0] || '';
+      const categoryHint = data.intent.requirements.categoryHints?.[0] || categorySlug;
+
+      const parts: string[] = [];
+      if (data.next === 'search' || data.next === 'design_assist') {
+        parts.push(copy.search_ai_product);
+        if (categoryHint) parts.push(categoryHint);
+        if (city) parts.push(city);
+        if (data.intent.requirements.preferCheapest) parts.push(copy.search_ai_cheapest);
+      } else if (data.next === 'professional_search' || data.next === 'professional_lead') {
+        parts.push(copy.search_ai_pro);
+        if (specialty) parts.push(specialty);
+        if (city) parts.push(city);
+      } else if (data.next === 'seller_onboard') {
+        parts.push(copy.search_ai_seller);
+        if (categorySlug) parts.push(categorySlug);
+      } else if (data.next === 'professional_onboard') {
+        parts.push(copy.search_ai_pro_onboard);
+      }
+      setSummary(parts.filter(Boolean).join(' · ') || copy.search_ai_understood);
 
       if (data.next === 'clarify') {
         setClarify(data.intent.clarification || null);
@@ -196,7 +225,7 @@ export function SearchClient({
             : copy.search_intent_professional,
         );
         setHits([]);
-        router.push(href);
+        await loadPros(city || province, specialty);
         return;
       }
 
@@ -212,6 +241,7 @@ export function SearchClient({
         sessionStorage.setItem(SEARCH_QUERY_STORAGE_KEY, JSON.stringify(data.searchQuery));
         setIntentInfo(copy.search_intent_product);
         await runSearch(data.searchQuery);
+        if (city) await loadPros(city, specialty || undefined);
       } else {
         setHits([]);
       }
@@ -228,6 +258,7 @@ export function SearchClient({
     try {
       const data = await apiPostClient<RankedRecommendation>('/search', query);
       setHits(data.hits || []);
+      setPreferCheapest(Boolean(query.filters?.preferCheapest || query.requirements?.preferCheapest));
     } catch {
       setError(copy.no_results);
     } finally {
@@ -236,8 +267,8 @@ export function SearchClient({
   }
 
   return (
-    <div>
-      <div style={{ padding: '1rem 1.25rem 0' }}>
+    <div className="search-hub">
+      <div className="search-hub__bar">
         <SiteSearchBar locale={ui} copy={copy} variant="inline" showRecent initialQuery={initialQuery} />
       </div>
 
@@ -259,18 +290,17 @@ export function SearchClient({
               ) : null}
             </div>
           </div>
-          <p className="search-photo-panel__hint">{copy.search_photo_hint}</p>
         </div>
       ) : null}
 
-      {needText && !photo ? <div className="pk-notice">{needText}</div> : null}
-      {intentInfo ? <div className="pk-notice">{intentInfo}</div> : null}
-      {extracted ? (
-        <div className="pk-notice search-extract">
-          <strong>{copy.search_extract_title}</strong>
-          <pre style={{ margin: '0.5rem 0 0', whiteSpace: 'pre-wrap', fontSize: '0.82rem' }}>
-            {JSON.stringify(extracted, null, 2)}
-          </pre>
+      {(summary || intentInfo || needText) && !photo ? (
+        <div className="search-ai-card">
+          <p className="search-ai-card__kicker">{copy.search_ai_kicker}</p>
+          {needText ? <p className="search-ai-card__need">«{needText}»</p> : null}
+          {summary ? <p className="search-ai-card__summary">{summary}</p> : null}
+          {intentInfo ? <p className="search-ai-card__info">{intentInfo}</p> : null}
+          {preferCheapest ? <p className="search-ai-card__badge">{copy.search_cheapest_badge}</p> : null}
+          <p className="search-ai-card__pricing">{copy.mp_pricing_note}</p>
           {deepLink ? (
             <p style={{ marginTop: '0.75rem' }}>
               <a className="mp-btn mp-btn--primary" href={deepLink}>
@@ -278,29 +308,9 @@ export function SearchClient({
               </a>
             </p>
           ) : null}
-          {intentNext === 'professional_lead' || intentNext === 'professional_search' ? (
-            <p style={{ marginTop: '0.75rem' }}>
-              <a className="mp-btn mp-btn--primary" href={deepLink || `/${ui}/professionals`}>
-                {copy.search_go_professionals}
-              </a>
-            </p>
-          ) : null}
-          {intentNext === 'seller_onboard' ? (
-            <p style={{ marginTop: '0.75rem' }}>
-              <a className="mp-btn mp-btn--primary" href={deepLink || `/${ui}/seller?tab=listing&wizard=1`}>
-                {copy.search_go_seller}
-              </a>
-            </p>
-          ) : null}
-          {intentNext === 'design_assist' ? (
-            <p style={{ marginTop: '0.75rem' }}>
-              <a className="mp-btn mp-btn--primary" href={`/${ui}/designer`}>
-                {copy.search_go_designer}
-              </a>
-            </p>
-          ) : null}
         </div>
       ) : null}
+
       {busy ? <div className="pk-notice">{copy.search_working}</div> : null}
       {error ? <div className="pk-notice">{error}</div> : null}
 
@@ -317,29 +327,61 @@ export function SearchClient({
         </div>
       ) : null}
 
-      {!busy && hits.length === 0 && (needText || photo) && !clarify ? (
+      {!busy && hits.length === 0 && (needText || photo) && !clarify && intentNext === 'search' ? (
         <div className="pk-empty">{copy.no_results}</div>
       ) : null}
 
       {hits.length > 0 ? (
-        <div className="pk-catalog-grid">
-          {hits.map((hit) => (
-            <MarketplaceListingCard
-              key={hit.listingId}
-              locale={ui}
-              copy={copy}
-              listing={{
-                slug: hit.preview.slug,
-                title: hit.preview.title,
-                categoryName: hit.preview.category?.name,
-                sellerName: hit.preview.organizationPublic?.name,
-                displayPrice: hit.preview.displayPrice,
-                currency: hit.preview.currency,
-                uomCode: hit.preview.uomCode,
-              }}
-            />
-          ))}
-        </div>
+        <section className="search-hub__results" aria-label={copy.search_title}>
+          <h2 className="search-hub__results-title">
+            {preferCheapest ? copy.search_cheapest_title : copy.search_results_title}
+          </h2>
+          <div className="pk-catalog-grid">
+            {hits.map((hit, idx) => (
+              <MarketplaceListingCard
+                key={hit.listingId}
+                locale={ui}
+                copy={copy}
+                badge={preferCheapest && idx < 3 ? copy.search_best_price_badge : undefined}
+                listing={{
+                  slug: hit.preview.slug,
+                  title: hit.preview.title,
+                  categoryName: hit.preview.category?.name,
+                  sellerName: hit.preview.organizationPublic?.name,
+                  displayPrice: hit.preview.displayPrice,
+                  currency: hit.preview.currency,
+                  uomCode: hit.preview.uomCode,
+                  city: hit.preview.facilityPublic?.city,
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {pros.length > 0 ? (
+        <section className="search-pro-rec" aria-labelledby="search-pro-title">
+          <h2 id="search-pro-title" className="search-pro-rec__title">
+            {copy.search_pro_rec_title}
+          </h2>
+          <p className="search-pro-rec__lead">{copy.search_pro_rec_lead}</p>
+          <ul className="search-pro-rec__list">
+            {pros.map((p) => (
+              <li key={p.id}>
+                <strong>{p.name}</strong>
+                {p.specialtyLabel ? <span> · {p.specialtyLabel}</span> : null}
+                {p.locations?.[0]?.city ? <span> · {p.locations[0].city}</span> : null}
+                {p.distanceKm != null ? (
+                  <span className="panel-muted"> · {p.distanceKm.toFixed(0)} km</span>
+                ) : null}
+                <span className="search-pro-rec__tag">{copy.search_pro_rec_tag}</span>
+              </li>
+            ))}
+          </ul>
+          <a className="mp-btn" href={`/${ui}/professionals?find=1`}>
+            {copy.search_go_professionals}
+          </a>
+        </section>
       ) : null}
     </div>
   );

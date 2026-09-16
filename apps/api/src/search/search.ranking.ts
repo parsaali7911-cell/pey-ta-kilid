@@ -193,14 +193,44 @@ export function rankListing(
     });
   }
 
+  if (filters.location && listing.facilityPublic) {
+    components.push({
+      key: 'location',
+      points: weights.location,
+      reason: `public facility ${listing.facilityPublic.city}`,
+    });
+  } else if (filters.preferredCity && listing.facilityPublic?.city) {
+    const needle = filters.preferredCity.toLowerCase();
+    const city = listing.facilityPublic.city.toLowerCase();
+    const province = (listing.facilityPublic.province || '').toLowerCase();
+    if (city.includes(needle) || needle.includes(city) || province.includes(needle)) {
+      components.push({
+        key: 'location',
+        points: weights.location,
+        reason: `preferred city match ${listing.facilityPublic.city}`,
+      });
+    } else {
+      // Soft downrank remote facilities when buyer named a city
+      components.push({
+        key: 'location',
+        points: round(weights.location * 0.15),
+        reason: `other city ${listing.facilityPublic.city}`,
+      });
+    }
+  }
+
   if (
     listing.displayPrice != null &&
-    (filters.priceMin != null || filters.priceMax != null)
+    (filters.priceMin != null || filters.priceMax != null || filters.preferCheapest)
   ) {
+    // Absolute budget fit gets full price weight; cheapest preference scored in search.service
     components.push({
       key: 'price',
-      points: weights.price,
-      reason: `price ${listing.displayPrice} within budget`,
+      points:
+        filters.priceMin != null || filters.priceMax != null
+          ? weights.price
+          : round(weights.price * 0.35),
+      reason: `price ${listing.displayPrice}${filters.preferCheapest ? ' (cheapest mode)' : ''}`,
     });
   }
 
@@ -220,14 +250,6 @@ export function rankListing(
       key: 'leadTime',
       points: round(weights.leadTime * Math.max(0, fit)),
       reason: `leadTimeDays=${listing.leadTimeDays}`,
-    });
-  }
-
-  if (filters.location && listing.facilityPublic) {
-    components.push({
-      key: 'location',
-      points: weights.location,
-      reason: `public facility ${listing.facilityPublic.city}`,
     });
   }
 

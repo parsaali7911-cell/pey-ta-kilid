@@ -16,6 +16,10 @@ class StructuredRequirementsDto {
 
   @IsOptional()
   @IsString()
+  journey?: string | null;
+
+  @IsOptional()
+  @IsString()
   market?: string | null;
 
   @IsOptional()
@@ -31,6 +35,9 @@ class StructuredRequirementsDto {
 
   @IsOptional()
   categoryHints?: string[];
+
+  @IsOptional()
+  categorySlugHints?: string[];
 
   @IsOptional()
   @IsObject()
@@ -67,6 +74,9 @@ class StructuredRequirementsDto {
   @IsOptional()
   @IsString()
   rawText?: string | null;
+
+  @IsOptional()
+  preferCheapest?: boolean;
 }
 
 export class SearchRequestDto {

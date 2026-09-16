@@ -44,9 +44,9 @@ export function mergeFiltersFromRequirements(
     hardAttrs[key] = value;
   }
 
-  // Buyer city is a delivery/project destination — boost via text, do not hard-exclude
-  // listings whose public facility city differs (common for nationwide catalogs).
+  // Buyer city: soft preferredCity boost + text; do not hard-exclude other cities.
   const city = requirements.location?.city;
+  const preferCheapest = overrides?.preferCheapest ?? Boolean(requirements.preferCheapest);
   const textParts = [
     overrides?.text ?? null,
     requirements.rawText ?? null,
@@ -71,6 +71,8 @@ export function mergeFiltersFromRequirements(
     market: overrides?.market ?? requirements.market ?? null,
     locale: overrides?.locale ?? requirements.locale ?? null,
     location: overrides?.location ?? null,
+    preferredCity: overrides?.preferredCity ?? city ?? null,
+    preferCheapest,
     facilityProximity:
       overrides?.facilityProximity ?? requirements.facilityProximity ?? null,
     listingIds: overrides?.listingIds ?? requirements.listingIdHints,

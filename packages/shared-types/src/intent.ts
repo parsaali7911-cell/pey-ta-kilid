@@ -60,6 +60,8 @@ export type StructuredRequirements = {
   confidence: number;
   missingFields: string[];
   rawText?: string | null;
+  /** Prefer lowest displayPrice (e.g. «کمترین قیمت»). */
+  preferCheapest?: boolean;
 };
 
 export type ClarificationField = {

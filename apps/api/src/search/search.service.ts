@@ -56,6 +56,23 @@ export class SearchService {
 
     const categoryIds = await this.resolveCategoryIds(filters.categoryIds, filters.categoryHints);
 
+    // Hard text filter only when we lack category anchors — otherwise NL stopwords
+    // (کمترین، میخوام، توی…) wipe the candidate set before ranking.
+    const hardText =
+      !categoryIds.length && filters.text
+        ? filters.text
+            .split(/[\s,،]+/)
+            .map((t) => t.trim())
+            .filter((t) => t.length > 2)
+            .filter(
+              (t) =>
+                !/^(می[\u200c]?خوا(?:م|هم)|توی|تو|با|از|برای|رنج|کمترین|ارزان|قیمت|و|در|the|a|an|in|at|with|lowest|price|want)$/i.test(
+                  t,
+                ),
+            )
+            .slice(0, 6)
+        : [];
+
     const where: Prisma.ListingWhereInput = {
       status: ListingStatus.PUBLISHED,
       ...(categoryIds.length ? { categoryId: { in: categoryIds } } : {}),
@@ -86,21 +103,13 @@ export class SearchService {
             },
           }
         : {}),
-      ...(filters.text
+      ...(hardText.length
         ? {
-            OR: (() => {
-              const tokens = filters.text
-                .split(/[\s,،]+/)
-                .map((t) => t.trim())
-                .filter((t) => t.length > 1)
-                .slice(0, 8);
-              const needles = tokens.length ? tokens : [filters.text.trim()];
-              return needles.flatMap((needle) => [
-                { title: { contains: needle, mode: 'insensitive' as const } },
-                { description: { contains: needle, mode: 'insensitive' as const } },
-                { slug: { contains: needle, mode: 'insensitive' as const } },
-              ]);
-            })(),
+            OR: hardText.flatMap((needle) => [
+              { title: { contains: needle, mode: 'insensitive' as const } },
+              { description: { contains: needle, mode: 'insensitive' as const } },
+              { slug: { contains: needle, mode: 'insensitive' as const } },
+            ]),
           }
         : {}),
     };
@@ -191,6 +200,27 @@ export class SearchService {
     }
 
     scored.sort((a, b) => b.score - a.score || a.listingId.localeCompare(b.listingId));
+
+    if (filters.preferCheapest) {
+      const cityNeedle = (filters.preferredCity || '').toLowerCase();
+      scored.sort((a, b) => {
+        const aCity = (a.preview.facilityPublic?.city || '').toLowerCase();
+        const bCity = (b.preview.facilityPublic?.city || '').toLowerCase();
+        const aLocal =
+          cityNeedle && (aCity.includes(cityNeedle) || cityNeedle.includes(aCity)) ? 1 : 0;
+        const bLocal =
+          cityNeedle && (bCity.includes(cityNeedle) || cityNeedle.includes(bCity)) ? 1 : 0;
+        if (aLocal !== bLocal) return bLocal - aLocal;
+        const ap = a.preview.displayPrice;
+        const bp = b.preview.displayPrice;
+        if (ap == null && bp == null) return b.score - a.score;
+        if (ap == null) return 1;
+        if (bp == null) return -1;
+        if (ap !== bp) return ap - bp;
+        return b.score - a.score;
+      });
+    }
+
     const offset = query.offset ?? 0;
     const limit = query.limit ?? 20;
     const hits = scored.slice(offset, offset + limit);
@@ -198,7 +228,9 @@ export class SearchService {
     return {
       hits,
       strategy: 'rule',
-      explanation: `rule_rank candidates=${rows.length} matched=${scored.length} locale=${locale}`,
+      explanation: filters.preferCheapest
+        ? `rule_rank_prefer_cheapest candidates=${rows.length} matched=${scored.length} locale=${locale}`
+        : `rule_rank candidates=${rows.length} matched=${scored.length} locale=${locale}`,
       totalCandidates: scored.length,
     };
   }
