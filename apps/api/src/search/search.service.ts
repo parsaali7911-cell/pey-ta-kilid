@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ListingStatus, LocalizedEntityType, Prisma } from '@prisma/client';
+import { ListingStatus, LocalizedEntityType, MediaStatus, Prisma } from '@prisma/client';
 import {
   DEFAULT_SEARCH_RANKING_WEIGHTS,
   RankedRecommendation,
@@ -128,6 +128,12 @@ export class SearchService {
         price: true,
         inventory: true,
         facility: { include: { address: true } },
+        media: {
+          where: { status: MediaStatus.APPROVED },
+          orderBy: { sortOrder: 'asc' },
+          take: 1,
+          select: { url: true, status: true, sortOrder: true },
+        },
         product: { select: { id: true, slug: true, name: true } },
         variant: { select: { id: true, sku: true, name: true } },
       },

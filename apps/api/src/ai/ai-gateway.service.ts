@@ -7,6 +7,8 @@ import {
   AiCompleteOutput,
   AiEmbedInput,
   AiEmbedOutput,
+  AiImageGenerateInput,
+  AiImageGenerateOutput,
   AiProvider,
   AiVisionInput,
   AiVisionOutput,
@@ -30,6 +32,12 @@ export class NullAiProvider implements AiProvider {
   }
 
   async vision(): Promise<AiVisionOutput> {
+    throw Object.assign(new Error(AI_PROVIDER_NOT_CONFIGURED), {
+      code: AI_PROVIDER_NOT_CONFIGURED,
+    });
+  }
+
+  async imageGenerate(): Promise<AiImageGenerateOutput> {
     throw Object.assign(new Error(AI_PROVIDER_NOT_CONFIGURED), {
       code: AI_PROVIDER_NOT_CONFIGURED,
     });
@@ -78,6 +86,19 @@ export class AiGatewayService {
     );
     try {
       return await this.provider.vision({ ...input, maxOutputTokens });
+    } catch (e) {
+      this.rethrowProvider(e);
+    }
+  }
+
+  async imageGenerate(input: AiImageGenerateInput): Promise<AiImageGenerateOutput> {
+    try {
+      if (!this.provider.imageGenerate) {
+        throw Object.assign(new Error(AI_PROVIDER_NOT_CONFIGURED), {
+          code: AI_PROVIDER_NOT_CONFIGURED,
+        });
+      }
+      return await this.provider.imageGenerate(input);
     } catch (e) {
       this.rethrowProvider(e);
     }

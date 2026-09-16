@@ -20,6 +20,8 @@ const envSchema = z.object({
   /** Optional — required only when AI_PROVIDER=openai */
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_MODEL: z.string().min(1).default('gpt-4o-mini'),
+  /** Image model for designer product-in-space (gpt-image-1 or dall-e-3). */
+  OPENAI_IMAGE_MODEL: z.string().min(1).default('gpt-image-1'),
   OPENAI_INPUT_COST_PER_1M: z.coerce.number().nonnegative().default(0.15),
   OPENAI_OUTPUT_COST_PER_1M: z.coerce.number().nonnegative().default(0.6),
 });

@@ -57,6 +57,7 @@ export type SearchListingRow = {
       postalCode?: string | null;
     };
   } | null;
+  media?: Array<{ url: string | null; status?: string | null; sortOrder?: number | null }>;
 };
 
 /** Build public SearchHit — uses public DTO mappers; never invents values. */
@@ -96,6 +97,7 @@ export function toSearchHit(input: {
     uomCode: inventory?.uomCode ?? listing.uomCode,
     moq: listing.moq == null ? null : Number(listing.moq),
     leadTimeDays: listing.leadTimeDays,
+    imageUrl: firstPublicImageUrl(listing.media),
     category: {
       id: listing.category.id,
       slug: listing.category.slug,
@@ -135,4 +137,14 @@ export function flattenAttributes(listing: SearchListingRow) {
     valueNumber: a.valueNumber == null ? null : Number(a.valueNumber),
     valueBoolean: a.valueBoolean,
   }));
+}
+
+function firstPublicImageUrl(
+  media?: Array<{ url: string | null; status?: string | null; sortOrder?: number | null }>,
+): string | null {
+  if (!media?.length) return null;
+  const approved = media
+    .filter((m) => m.url && (!m.status || m.status === 'APPROVED'))
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  return approved[0]?.url || null;
 }

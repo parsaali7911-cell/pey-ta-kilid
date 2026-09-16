@@ -24,6 +24,13 @@ describe('AiGateway (Phase 0-F)', () => {
     }
   });
 
+  it('null provider imageGenerate surfaces as 503', async () => {
+    const gateway = new AiGatewayService(new NullAiProvider(), DEFAULT_AI_BUDGETS);
+    await expect(gateway.imageGenerate({ prompt: 'room with tile' })).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
   it('enforces token/output budgets', async () => {
     const calls: number[] = [];
     const provider = {

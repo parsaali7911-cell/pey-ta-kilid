@@ -5,6 +5,9 @@ export type ListingSeoInput = {
   slug: string;
   title: string;
   description?: string | null;
+  /** Prefer these over title/description when present (auto-generated or manual). */
+  seoTitle?: string | null;
+  seoDescription?: string | null;
   locale: string;
   siteUrl: string;
   categoryName?: string | null;
@@ -92,8 +95,9 @@ export function buildListingSeoMetadata(input: ListingSeoInput): ListingSeoMetad
   const base = input.siteUrl.replace(/\/$/, '');
   const path = listingPublicPath(input.locale, input.slug);
   const canonical = `${base}${path}`;
-  const description = input.description?.trim() || undefined;
-  const title = input.title.trim();
+  const title = (input.seoTitle || input.title).trim();
+  const description =
+    (input.seoDescription || input.description)?.trim() || undefined;
   const images = (input.images || []).filter(Boolean).map((url) => ({ url }));
 
   const meta: ListingSeoMetadata = {
@@ -229,6 +233,16 @@ export function buildStaticSitemapEntries(
       changeFrequency: 'daily',
       priority: 0.8,
     });
+    entries.push({
+      url: `${base}${professionalsPublicPath(locale)}`,
+      changeFrequency: 'daily',
+      priority: 0.75,
+    });
+    entries.push({
+      url: `${base}/${locale}/designer`,
+      changeFrequency: 'weekly',
+      priority: 0.7,
+    });
   }
   return entries;
 }
@@ -273,4 +287,107 @@ export function robotsTxtBody(siteUrl: string): string {
     `Sitemap: ${base}/sitemap.xml`,
     '',
   ].join('\n');
+}
+
+export type AutoListingSeoInput = {
+  title: string;
+  description?: string | null;
+  categoryName?: string | null;
+  city?: string | null;
+  locale?: string;
+  brand?: string;
+};
+
+export type AutoProfessionalSeoInput = {
+  name: string;
+  specialtyLabel?: string | null;
+  city?: string | null;
+  province?: string | null;
+  locale?: string;
+  brand?: string;
+};
+
+/** Deterministic SEO copy — no LLM required. Safe for create/publish hooks. */
+export function autoGenerateListingSeo(input: AutoListingSeoInput): {
+  seoTitle: string;
+  seoDescription: string;
+} {
+  const brand = input.brand || 'Peytakilid';
+  const locale = input.locale || 'fa';
+  const cat = (input.categoryName || '').trim();
+  const city = (input.city || '').trim();
+  const title = input.title.trim();
+  const baseDesc = (input.description || '').trim().replace(/\s+/g, ' ');
+
+  if (locale === 'fa') {
+    const bits = [title];
+    if (cat) bits.push(cat);
+    if (city) bits.push(city);
+    bits.push(brand);
+    const seoTitle = bits.join(' | ').slice(0, 65);
+    const seoDescription = (
+      baseDesc ||
+      `خرید ${title}${cat ? ` در دسته ${cat}` : ''}${city ? ` — تأمین برای ${city}` : ''} از مارکت‌پلیس ${brand}. قیمت عمومی و موجودی واقعی.`
+    ).slice(0, 160);
+    return { seoTitle, seoDescription };
+  }
+
+  if (locale === 'ar') {
+    const bits = [title];
+    if (cat) bits.push(cat);
+    if (city) bits.push(city);
+    bits.push(brand);
+    return {
+      seoTitle: bits.join(' | ').slice(0, 65),
+      seoDescription: (
+        baseDesc ||
+        `اشترِ ${title}${cat ? ` من فئة ${cat}` : ''}${city ? ` للتوريد في ${city}` : ''} عبر سوق ${brand}.`
+      ).slice(0, 160),
+    };
+  }
+
+  const bits = [title];
+  if (cat) bits.push(cat);
+  if (city) bits.push(city);
+  bits.push(brand);
+  return {
+    seoTitle: bits.join(' | ').slice(0, 65),
+    seoDescription: (
+      baseDesc ||
+      `Buy ${title}${cat ? ` in ${cat}` : ''}${city ? ` for projects in ${city}` : ''} on ${brand}. Public price and real availability.`
+    ).slice(0, 160),
+  };
+}
+
+export function autoGenerateProfessionalSeo(input: AutoProfessionalSeoInput): {
+  seoTitle: string;
+  seoDescription: string;
+} {
+  const brand = input.brand || 'Peytakilid';
+  const locale = input.locale || 'fa';
+  const name = input.name.trim();
+  const specialty = (input.specialtyLabel || '').trim();
+  const place = [input.city, input.province].filter(Boolean).join('، ');
+
+  if (locale === 'fa') {
+    return {
+      seoTitle: [name, specialty, place, `متخصص ${brand}`].filter(Boolean).join(' | ').slice(0, 65),
+      seoDescription: `${name}${specialty ? ` — ${specialty}` : ''}${place ? ` در ${place}` : ''}؛ معرفی‌شده در دایرکتوری متخصصان ${brand}.`.slice(
+        0,
+        160,
+      ),
+    };
+  }
+
+  return {
+    seoTitle: [name, specialty, place, `${brand} professional`].filter(Boolean).join(' | ').slice(0, 65),
+    seoDescription: `${name}${specialty ? ` — ${specialty}` : ''}${place ? ` in ${place}` : ''}. Listed on the ${brand} professionals directory.`.slice(
+      0,
+      160,
+    ),
+  };
+}
+
+export function professionalsPublicPath(locale: string): string {
+  return `/${locale}/professionals`;
 }

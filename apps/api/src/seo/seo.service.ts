@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ListingStatus, MediaStatus } from '@prisma/client';
+import { ListingStatus, LocalizedEntityType, MediaStatus } from '@prisma/client';
 import {
   SEO_LOCALES,
   buildListingJsonLd,
@@ -11,11 +11,15 @@ import {
   type ListingSeoInput,
   type SitemapEntry,
 } from '@peytakilid/shared-types';
+import { LocalizationService } from '../i18n/localization.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class SeoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly localization: LocalizationService,
+  ) {}
 
   siteUrl() {
     return siteBaseUrl({
@@ -92,10 +96,23 @@ export class SeoService {
 
     const categoryName = resolveCategoryName(listing.category, locale);
 
+    const seoTitleMap = await this.localization.getFieldMap(
+      LocalizedEntityType.LISTING,
+      listing.id,
+      'seoTitle',
+    );
+    const seoDescMap = await this.localization.getFieldMap(
+      LocalizedEntityType.LISTING,
+      listing.id,
+      'seoDescription',
+    );
+
     const input: ListingSeoInput = {
       slug: listing.slug,
       title: listing.title,
       description: listing.description,
+      seoTitle: seoTitleMap[locale] || seoTitleMap.fa || seoTitleMap.en || null,
+      seoDescription: seoDescMap[locale] || seoDescMap.fa || seoDescMap.en || null,
       locale,
       siteUrl: this.siteUrl(),
       categoryName,

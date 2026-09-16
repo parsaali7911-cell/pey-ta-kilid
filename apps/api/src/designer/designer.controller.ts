@@ -48,6 +48,28 @@ export class DesignerController {
     return this.designer.status();
   }
 
+  @Get('bind-listing')
+  async bindListing(
+    @Query('listingRef') listingRef: string,
+    @Query('locale') locale?: string,
+  ) {
+    if (!listingRef?.trim()) throw new BadRequestException('listingRef required');
+    const listing = await this.designer.bindListing(listingRef.trim(), locale || 'fa');
+    return {
+      publicId: listing.publicId,
+      slug: listing.slug,
+      title: listing.title,
+      description: listing.description,
+      imageUrl: listing.media[0]?.url || null,
+    };
+  }
+
+  @Get('catalog')
+  catalog(@Query('q') q?: string, @Query('limit') limit?: string) {
+    const n = limit ? Number(limit) : 24;
+    return this.designer.listPublishedForPicker(q, Number.isFinite(n) ? n : 24);
+  }
+
   @Post('upload/:kind')
   @UseInterceptors(
     FileInterceptor('file', {

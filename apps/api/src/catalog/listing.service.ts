@@ -14,6 +14,7 @@ import { LocalizationService } from '../i18n/localization.service';
 import { FacilityService } from '../geo/facility.service';
 import { toPublicFacilityLocation, toSellerFacility } from '../geo/geo.contracts';
 import { PrismaService } from '../prisma/prisma.service';
+import { SeoContentService } from '../seo/seo-content.service';
 import { CategoryService } from './category.service';
 import {
   AttributeValueInputDto,
@@ -32,6 +33,7 @@ export class ListingService {
     private readonly localization: LocalizationService,
     private readonly facilities: FacilityService,
     private readonly translation: TranslationService,
+    private readonly seoContent: SeoContentService,
   ) {}
 
   async create(userId: string, dto: CreateListingDto) {
@@ -90,6 +92,9 @@ export class ListingService {
         value: dto.description,
       });
     }
+
+    // Auto SEO at product entry — no manual SEO copy required.
+    await this.seoContent.ensureListingSeo(listing.id);
 
     // Non-blocking translation job — never blocks product save.
     this.translation.scheduleAfterContentChange({
@@ -189,6 +194,16 @@ export class ListingService {
       });
     }
 
+    // Refresh deterministic SEO whenever listing content changes.
+    if (
+      dto.title != null ||
+      dto.description != null ||
+      dto.facilityId != null ||
+      dto.attributes != null
+    ) {
+      await this.seoContent.ensureListingSeo(listingId);
+    }
+
     return this.getById(listingId);
   }
 
@@ -224,6 +239,7 @@ export class ListingService {
       title: 'Listing submitted for review',
       payload: { listingId },
     });
+    await this.seoContent.ensureListingSeo(listingId);
     return this.toSellerListing(updated);
   }
 
@@ -276,6 +292,8 @@ export class ListingService {
       title: 'Listing published',
       payload: { listingId },
     });
+    // Ensure SEO is present at publish time (covers older drafts).
+    await this.seoContent.ensureListingSeo(listingId);
     return this.toSellerListing(updated);
   }
 

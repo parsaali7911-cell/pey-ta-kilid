@@ -23,6 +23,7 @@ export type AiEmbedOutput = {
 };
 
 export type AiVisionInput = {
+  /** Local filesystem path or https URL or data URL. */
   imageRef: string;
   prompt?: string;
   maxOutputTokens: number;
@@ -31,6 +32,23 @@ export type AiVisionInput = {
 export type AiVisionOutput = {
   attributes: Record<string, string | number | boolean>;
   caption?: string;
+  provider: string;
+  model?: string;
+};
+
+export type AiImageGenerateInput = {
+  prompt: string;
+  size?: '1024x1024' | '1024x1536' | '1536x1024';
+  /** Optional room/space photo (local path, https, or data URL) for edit-based viz. */
+  imageRef?: string;
+  /** Optional product/listing photo to condition the edit. */
+  productImageRef?: string;
+};
+
+export type AiImageGenerateOutput = {
+  /** Raw PNG/JPEG bytes as base64 (no data: prefix). */
+  imageBase64: string;
+  mimeType: string;
   provider: string;
   model?: string;
 };
@@ -44,6 +62,8 @@ export interface AiProvider {
   complete(input: AiCompleteInput): Promise<AiCompleteOutput>;
   embed(input: AiEmbedInput): Promise<AiEmbedOutput>;
   vision(input: AiVisionInput): Promise<AiVisionOutput>;
+  /** Optional — room/product visualization. Null provider throws not configured. */
+  imageGenerate?(input: AiImageGenerateInput): Promise<AiImageGenerateOutput>;
 }
 
 export type AiGatewayBudgets = {

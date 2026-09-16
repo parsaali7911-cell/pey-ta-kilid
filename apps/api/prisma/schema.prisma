@@ -210,6 +210,7 @@ model User {
   createdRfqs   Rfq[] @relation("RfqCreatedBy")
   createdQuotes Quote[] @relation("QuoteCreatedBy")
   createdOrders Order[] @relation("OrderCreatedBy")
+  professionalReviews ProfessionalReview[] @relation("ProReviewAuthor")
 }
 
 model Organization {
@@ -222,6 +223,9 @@ model Organization {
   isProfessional Boolean  @default(false)
   /// Primary trade/specialty code for professionals (and optional for sellers).
   primarySpecialty String?
+  /// Auto-generated SEO (filled on create/update — no manual content required).
+  seoTitle       String?
+  seoDescription String?
   /// ERP party IDs when org participates as buyer (customer) / seller (supplier)
   erpCustomerExternalId String?
   erpSupplierExternalId String?
@@ -235,6 +239,8 @@ model Organization {
   facilities Facility[]
   serviceAreas ServiceArea[]
   matchedLeads ProfessionalLead[]
+  professionalProfile ProfessionalProfile?
+  professionalReviews ProfessionalReview[] @relation("ProOrgReviews")
   buyerRfqs  Rfq[] @relation("RfqBuyerOrg")
   sellerRfqTargets RfqTarget[] @relation("RfqSellerOrg")
   sellerQuotes Quote[] @relation("QuoteSellerOrg")
@@ -716,6 +722,103 @@ model ProfessionalLead {
   @@index([status, createdAt])
   @@index([matchedOrganizationId])
   @@index([city])
+}
+
+/// Extended professional marketplace profile (identity + completeness score /100).
+model ProfessionalProfile {
+  id                   String    @id @default(cuid())
+  organizationId       String    @unique
+  displayName          String?
+  bio                  String?
+  yearsExperience      Int?
+  mobilePhone          String?
+  mobileVerifiedAt     DateTime?
+  /// SHA-256 of national ID — never expose raw کد ملی publicly.
+  nationalIdHash       String?
+  nationalIdLast4      String?
+  nationalIdVerifiedAt DateTime?
+  /// When mobile + national ID + avatar are all present/verified.
+  identityVerifiedAt   DateTime?
+  avatarUrl            String?
+  secondarySpecialties String[]  @default([])
+  projectTypes         String[]  @default([])
+  serviceRadiusKm      Float?
+  priceRangeMin        Decimal?  @db.Decimal(18, 2)
+  priceRangeMax        Decimal?  @db.Decimal(18, 2)
+  priceCurrency        String?   @default("IRR")
+  priceNote            String?
+  availabilityNote     String?
+  /// Deterministic 0–100 completeness + identity score.
+  profileScore         Int       @default(0)
+  portfolioCount       Int       @default(0)
+  reviewCount          Int       @default(0)
+  ratingAvg            Float?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  portfolio    ProfessionalPortfolio[]
+
+  @@index([profileScore])
+  @@index([mobilePhone])
+  @@index([identityVerifiedAt])
+}
+
+model ProfessionalPortfolio {
+  id        String   @id @default(cuid())
+  profileId String
+  url       String
+  caption   String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  profile ProfessionalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+}
+
+enum ProfessionalReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  HIDDEN
+}
+
+model ProfessionalReview {
+  id             String                   @id @default(cuid())
+  publicId       String                   @unique @default(cuid())
+  organizationId String
+  authorUserId   String?
+  authorName     String
+  rating         Int
+  body           String?
+  status         ProfessionalReviewStatus @default(PENDING)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  organization Organization @relation("ProOrgReviews", fields: [organizationId], references: [id], onDelete: Cascade)
+  author       User?        @relation("ProReviewAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([authorUserId])
+}
+
+/// SMS/OTP challenges for professional mobile verification (dev logs code when SMS unset).
+model PhoneOtpChallenge {
+  id         String    @id @default(cuid())
+  phone      String
+  codeHash   String
+  purpose    String
+  /// Optional org binding for pro identity OTP.
+  organizationId String?
+  attempts   Int       @default(0)
+  maxAttempts Int      @default(5)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, purpose, consumedAt])
+  @@index([organizationId])
 }
 
 /// AI translation cache/job state — LocalizedContent remains the serving store.

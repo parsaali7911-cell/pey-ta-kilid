@@ -2,6 +2,8 @@ import { ListingStatus, MediaStatus } from '@prisma/client';
 import {
   SEO_LOCALES,
   assertNoPrivateSeoLeak,
+  autoGenerateListingSeo,
+  autoGenerateProfessionalSeo,
   buildListingJsonLd,
   buildListingSeoMetadata,
   buildListingSitemapEntries,
@@ -23,6 +25,8 @@ describe('SEO foundation', () => {
         expect(urls).toContain(`${siteUrl}/${locale}`);
         expect(urls).toContain(`${siteUrl}/${locale}/catalog`);
         expect(urls).toContain(`${siteUrl}/${locale}/search`);
+        expect(urls).toContain(`${siteUrl}/${locale}/professionals`);
+        expect(urls).toContain(`${siteUrl}/${locale}/designer`);
       }
       expect(urls.join(' ')).not.toMatch(/FactoryProduct|stoncity|\/stones\//i);
       expect(urls.join(' ')).not.toMatch(/\/admin|\/api|\/account|\/seller/);
@@ -115,11 +119,54 @@ describe('SEO foundation', () => {
       expect(() => assertNoPrivateSeoLeak({ FactoryProduct: true })).toThrow(/FactoryProduct/);
       expect(() => assertNoPrivateSeoLeak({ path: '/stones/x' })).toThrow(/\/stones\//);
     });
+
+    it('autoGenerateListingSeo builds fa/en titles without manual copy', () => {
+      const fa = autoGenerateListingSeo({
+        title: 'کاشی ۶۰',
+        categoryName: 'کاشی',
+        city: 'تهران',
+        locale: 'fa',
+      });
+      expect(fa.seoTitle).toContain('کاشی ۶۰');
+      expect(fa.seoTitle.length).toBeLessThanOrEqual(65);
+      expect(fa.seoDescription.length).toBeLessThanOrEqual(160);
+      expect(fa.seoDescription).toMatch(/پی‌تا‌کلید|کاشی/);
+
+      const en = autoGenerateListingSeo({
+        title: 'Ceramic Tile 60',
+        categoryName: 'Tiles',
+        city: 'Tehran',
+        locale: 'en',
+      });
+      expect(en.seoTitle).toContain('Ceramic Tile 60');
+      expect(en.seoDescription).toMatch(/Peytakilid|Buy/);
+    });
+
+    it('autoGenerateProfessionalSeo builds directory titles', () => {
+      const fa = autoGenerateProfessionalSeo({
+        name: 'استاد رضایی',
+        specialtyLabel: 'کاشی‌کار',
+        city: 'اصفهان',
+        province: 'اصفهان',
+        locale: 'fa',
+      });
+      expect(fa.seoTitle).toContain('استاد رضایی');
+      expect(fa.seoDescription).toMatch(/متخصصان|کاشی‌کار/);
+    });
   });
 
   describe('SeoService', () => {
+    function mockLocalization(seoMap: Record<string, Record<string, string>> = {}) {
+      return {
+        getFieldMap: jest.fn(async (_type: string, entityId: string, field: string) => {
+          return seoMap[`${entityId}:${field}`] || {};
+        }),
+      };
+    }
+
     function mockPrisma(state: {
       listings: Array<{
+        id?: string;
         slug: string;
         status: string;
         updatedAt?: Date;
@@ -160,6 +207,7 @@ describe('SEO foundation', () => {
               );
               if (!row) return null;
               return {
+                id: row.id || `id-${row.slug}`,
                 slug: row.slug,
                 title: row.title ?? row.slug,
                 description: row.description ?? null,
@@ -209,7 +257,7 @@ describe('SEO foundation', () => {
           { slug: 'archived-tile', status: ListingStatus.ARCHIVED },
         ],
       });
-      const seo = new SeoService(prisma as never);
+      const seo = new SeoService(prisma as never, mockLocalization() as never);
       const { entries } = await seo.sitemapJson();
       const urls = entries.map((e) => e.url);
 
@@ -234,6 +282,7 @@ describe('SEO foundation', () => {
       const prisma = mockPrisma({
         listings: [
           {
+            id: 'listing-public-door',
             slug: 'public-door',
             status: ListingStatus.PUBLISHED,
             title: 'Public Door',
@@ -259,7 +308,16 @@ describe('SEO foundation', () => {
           },
         ],
       });
-      const seo = new SeoService(prisma as never);
+      const localization = mockLocalization({
+        'listing-public-door:seoTitle': {
+          en: 'Public Door | Doors | Peytakilid',
+          fa: 'درب عمومی | درب | پی‌تا‌کلید',
+        },
+        'listing-public-door:seoDescription': {
+          en: 'Buy Public Door in Doors on Peytakilid.',
+        },
+      });
+      const seo = new SeoService(prisma as never, localization as never);
 
       expect(await seo.listingSeo('draft-door', 'en')).toBeNull();
 
@@ -267,7 +325,7 @@ describe('SEO foundation', () => {
       expect(result).not.toBeNull();
       expect(result!.metadata.canonical).toBe(`${siteUrl}/en/catalog/public-door`);
       expect(result!.metadata.alternates.fa).toBe(`${siteUrl}/fa/catalog/public-door`);
-      expect(result!.metadata.openGraph.title).toBe('Public Door');
+      expect(result!.metadata.openGraph.title).toBe('Public Door | Doors | Peytakilid');
       assertNoPrivateSeoLeak(result!.metadata);
       assertNoPrivateSeoLeak(result!.jsonLd);
 
@@ -280,7 +338,10 @@ describe('SEO foundation', () => {
 
     it('robotsTxt delegates to shared robots body', () => {
       process.env.SITE_URL = siteUrl;
-      const seo = new SeoService(mockPrisma({ listings: [] }) as never);
+      const seo = new SeoService(
+        mockPrisma({ listings: [] }) as never,
+        mockLocalization() as never,
+      );
       expect(seo.robotsTxt()).toBe(robotsTxtBody(siteUrl));
     });
   });

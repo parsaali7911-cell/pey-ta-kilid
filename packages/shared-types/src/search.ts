@@ -86,6 +86,8 @@ export type SearchHitPreview = {
   uomCode?: string | null;
   moq?: number | null;
   leadTimeDays?: number | null;
+  /** First approved listing image (public URL) when available. */
+  imageUrl?: string | null;
   category?: { id: string; slug: string; name: string } | null;
   /** Public org identity only */
   organizationPublic?: { id: string; name: string; slug: string } | null;

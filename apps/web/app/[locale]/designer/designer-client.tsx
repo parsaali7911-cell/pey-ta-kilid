@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiUrl } from '@/lib/api';
 import type { Locale } from '@/lib/i18n-public';
 
@@ -23,12 +23,30 @@ type Job = {
   listingSlug: string | null;
   listingTitle: string | null;
   resultNote: string | null;
+  resultImageUrl: string | null;
   errorMessage: string | null;
+};
+
+type CatalogItem = {
+  publicId: string;
+  slug: string;
+  title: string;
+  imageUrl: string | null;
 };
 
 const SESSION_KEY = 'peytakilid_designer_session';
 const MAX_UPLOAD_EDGE = 2048;
 const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
+
+function defaultPromptForListing(locale: Locale, title: string): string {
+  if (locale === 'en') {
+    return `Apply “${title}” realistically into this uploaded project space. Keep geometry and lighting natural.`;
+  }
+  if (locale === 'ar') {
+    return `طبّق «${title}» بشكل واقعي داخل المساحة المرفوعة مع الحفاظ على الإضاءة والهندسة.`;
+  }
+  return `محصول «${title}» را به‌صورت واقعی داخل فضای آپلود‌شده اعمال کن؛ نور و هندسه فضا حفظ شود.`;
+}
 
 async function prepareImageForUpload(file: File): Promise<File> {
   const type = (file.type || '').toLowerCase();
@@ -81,15 +99,20 @@ export default function DesignerClient({
   const [session, setSession] = useState('');
   const [status, setStatus] = useState<Status | null>(null);
   const [spaceId, setSpaceId] = useState('');
+  const [spacePreviewUrl, setSpacePreviewUrl] = useState('');
   const [listingRef, setListingRef] = useState(initialListingRef);
   const [listingTitle, setListingTitle] = useState('');
   const [listingSlug, setListingSlug] = useState('');
+  const [listingImageUrl, setListingImageUrl] = useState('');
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [catalogQ, setCatalogQ] = useState('');
   const [prompt, setPrompt] = useState('');
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
+  const promptTouched = useRef(false);
   const sessionRef = useRef('');
   sessionRef.current = session;
 
@@ -97,6 +120,39 @@ export default function DesignerClient({
     const res = await fetch(apiUrl('/designer/status'));
     if (res.ok) setStatus(await res.json());
   }, []);
+
+  const bindListing = useCallback(
+    async (ref: string, opts?: { fillPrompt?: boolean }) => {
+      const trimmed = ref.trim();
+      if (!trimmed) return;
+      const res = await fetch(
+        apiUrl(`/designer/bind-listing?listingRef=${encodeURIComponent(trimmed)}&locale=${locale}`),
+      );
+      if (!res.ok) throw new Error(copy.designer_listing_missing || 'Listing not found');
+      const data = await res.json();
+      setListingRef(data.slug || trimmed);
+      setListingTitle(data.title || '');
+      setListingSlug(data.slug || '');
+      setListingImageUrl(data.imageUrl || '');
+      if (opts?.fillPrompt !== false && !promptTouched.current && data.title) {
+        setPrompt(defaultPromptForListing(locale, data.title));
+      }
+      setMsg(copy.designer_catalog_loaded.replace('{name}', data.title || trimmed));
+    },
+    [copy.designer_catalog_loaded, copy.designer_listing_missing, locale],
+  );
+
+  const loadCatalog = useCallback(
+    async (q?: string) => {
+      const qs = new URLSearchParams({ limit: '18' });
+      if (q?.trim()) qs.set('q', q.trim());
+      const res = await fetch(apiUrl(`/designer/catalog?${qs.toString()}`));
+      if (!res.ok) return;
+      const data = (await res.json()) as CatalogItem[];
+      setCatalog(Array.isArray(data) ? data : []);
+    },
+    [],
+  );
 
   useEffect(() => {
     void (async () => {
@@ -122,8 +178,23 @@ export default function DesignerClient({
       }
       setSession(token);
       await refreshStatus();
+      await loadCatalog();
     })();
-  }, [locale, refreshStatus]);
+  }, [locale, loadCatalog, refreshStatus]);
+
+  useEffect(() => {
+    if (!initialListingRef.trim()) return;
+    void bindListing(initialListingRef, { fillPrompt: true }).catch(() => {
+      /* ignore — user can pick from catalog */
+    });
+  }, [bindListing, initialListingRef]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void loadCatalog(catalogQ);
+    }, 280);
+    return () => clearTimeout(t);
+  }, [catalogQ, loadCatalog]);
 
   async function uploadSpace(file: File) {
     setError('');
@@ -131,6 +202,11 @@ export default function DesignerClient({
     setUploading(true);
     try {
       const prepared = await prepareImageForUpload(file);
+      const localUrl = URL.createObjectURL(prepared);
+      setSpacePreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return localUrl;
+      });
       const fd = new FormData();
       fd.append('file', prepared);
       const res = await fetch(apiUrl(`/designer/upload/space?locale=${locale}`), {
@@ -167,6 +243,9 @@ export default function DesignerClient({
     setBusy(true);
     setJob(null);
     try {
+      if (listingRef.trim()) {
+        await bindListing(listingRef, { fillPrompt: false }).catch(() => undefined);
+      }
       const res = await fetch(apiUrl('/designer/generate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -201,10 +280,44 @@ export default function DesignerClient({
     }
   }
 
+  const providerReady = status?.imageEditConfigured;
+  const canGenerate = Boolean(
+    spaceId && listingRef.trim() && prompt.trim().length >= 8 && status?.enabled && !busy && !uploading,
+  );
+
+  const steps = useMemo(
+    () => [
+      { done: Boolean(spaceId), label: copy.designer_step_space },
+      { done: Boolean(listingSlug || listingTitle), label: copy.designer_step_product },
+      { done: Boolean(prompt.trim().length >= 8), label: copy.designer_step_prompt },
+    ],
+    [copy.designer_step_product, copy.designer_step_prompt, copy.designer_step_space, listingSlug, listingTitle, prompt, spaceId],
+  );
+
   return (
     <div className="designer-grid public-workspace">
       {!status?.enabled ? <p className="pk-notice">{copy.designer_disabled}</p> : null}
-      {status?.note ? <p className="pk-notice" style={{ color: 'var(--sc-muted)' }}>{status.note}</p> : null}
+      <p className="pk-notice" style={{ color: 'var(--sc-muted)' }}>
+        {providerReady ? copy.designer_provider_ready : copy.designer_requires_cred}
+      </p>
+
+      <ol className="designer-steps" style={{ listStyle: 'none', padding: 0, display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        {steps.map((s, i) => (
+          <li
+            key={s.label}
+            className={s.done ? 'result' : undefined}
+            style={{
+              padding: '0.35rem 0.7rem',
+              borderRadius: 999,
+              border: '1px solid var(--sc-border, #ddd)',
+              background: s.done ? 'rgba(40,140,90,0.12)' : 'transparent',
+              fontSize: '0.85rem',
+            }}
+          >
+            {i + 1}. {s.label}
+          </li>
+        ))}
+      </ol>
 
       <form className="form designer-form" onSubmit={onGenerate}>
         <label>
@@ -223,28 +336,104 @@ export default function DesignerClient({
           {spaceId && !uploading ? <small className="ok-mark">{copy.designer_uploaded}</small> : null}
         </label>
 
-        <label>
-          {copy.designer_listing_ref}
-          <input
-            value={listingRef}
-            onChange={(e) => setListingRef(e.target.value)}
-            placeholder={copy.designer_listing_ref_ph}
-            required
-          />
-        </label>
-
-        {listingTitle ? (
-          <p className="pk-notice">
-            {copy.designer_catalog_loaded.replace('{name}', listingTitle)}
-            {listingSlug ? ` · ${listingSlug}` : ''}
-          </p>
+        {spacePreviewUrl ? (
+          <div className="designer-catalog-field">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={spacePreviewUrl}
+              alt={copy.designer_space}
+              style={{ width: '100%', maxWidth: 360, borderRadius: 12, border: '1px solid var(--sc-border, #ddd)' }}
+            />
+          </div>
         ) : null}
+
+        <div className="designer-catalog-field">
+          <strong>{copy.designer_pick_product}</strong>
+          <input
+            value={catalogQ}
+            onChange={(e) => setCatalogQ(e.target.value)}
+            placeholder={copy.designer_pick_product_ph}
+            disabled={busy}
+          />
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+              gap: '0.55rem',
+              marginTop: '0.65rem',
+            }}
+          >
+            {catalog.map((item) => {
+              const selected = listingSlug === item.slug || listingRef === item.slug;
+              return (
+                <button
+                  key={item.publicId}
+                  type="button"
+                  className="mp-btn"
+                  style={{
+                    display: 'grid',
+                    gap: '0.35rem',
+                    textAlign: 'start',
+                    padding: '0.45rem',
+                    borderColor: selected ? 'var(--sc-accent, #2a7)' : undefined,
+                    background: selected ? 'rgba(40,140,90,0.08)' : undefined,
+                  }}
+                  onClick={() => {
+                    void bindListing(item.slug, { fillPrompt: true });
+                  }}
+                  disabled={busy}
+                >
+                  {item.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={item.imageUrl}
+                      alt={item.title}
+                      style={{ width: '100%', height: 88, objectFit: 'cover', borderRadius: 8 }}
+                    />
+                  ) : (
+                    <div style={{ height: 88, borderRadius: 8, background: 'var(--sc-muted-bg, #eee)' }} />
+                  )}
+                  <span style={{ fontSize: '0.82rem', lineHeight: 1.3 }}>{item.title}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {(listingTitle || listingImageUrl) && (
+          <div
+            className="designer-catalog-field"
+            style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}
+          >
+            {listingImageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={listingImageUrl}
+                alt={listingTitle}
+                style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 10 }}
+              />
+            ) : null}
+            <div>
+              <p className="pk-notice" style={{ margin: 0 }}>
+                {copy.designer_catalog_loaded.replace('{name}', listingTitle || listingRef)}
+              </p>
+              {listingSlug ? (
+                <a href={`/${locale}/catalog/${listingSlug}`} style={{ fontSize: '0.85rem' }}>
+                  {copy.designer_view_listing}
+                </a>
+              ) : null}
+            </div>
+          </div>
+        )}
 
         <label>
           {copy.designer_prompt}
           <textarea
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={(e) => {
+              promptTouched.current = true;
+              setPrompt(e.target.value);
+            }}
             placeholder={copy.designer_prompt_ph}
             required
             minLength={8}
@@ -252,16 +441,16 @@ export default function DesignerClient({
           />
         </label>
 
-        <button
-          className="mp-btn mp-btn--primary"
-          type="submit"
-          disabled={busy || !spaceId || !listingRef.trim() || !prompt.trim() || !status?.enabled}
-        >
-          {copy.designer_generate}
+        <button className="mp-btn mp-btn--primary" type="submit" disabled={!canGenerate}>
+          {busy ? copy.designer_processing : copy.designer_generate}
         </button>
       </form>
 
-      {error ? <p className="pk-notice" style={{ color: '#9b3b3b' }}>{error}</p> : null}
+      {error ? (
+        <p className="pk-notice" style={{ color: '#9b3b3b' }}>
+          {error}
+        </p>
+      ) : null}
       {msg ? <p className="pk-notice">{msg}</p> : null}
 
       {job ? (
@@ -279,6 +468,22 @@ export default function DesignerClient({
               {job.errorMessage ? `: ${job.errorMessage}` : ''}
             </p>
           ) : null}
+          {job.status === 'READY' && job.resultImageUrl ? (
+            <div className="designer-result-image" style={{ marginBottom: '0.75rem' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={job.resultImageUrl}
+                alt={job.listingTitle || copy.designer_result}
+                className="designer-result-img"
+                style={{
+                  width: '100%',
+                  maxWidth: 640,
+                  borderRadius: 12,
+                  border: '1px solid var(--sc-border, #ddd)',
+                }}
+              />
+            </div>
+          ) : null}
           {job.status === 'READY' && job.resultNote ? (
             <p className="pk-notice">{job.resultNote}</p>
           ) : null}
@@ -288,7 +493,10 @@ export default function DesignerClient({
               {copy.designer_another}
             </button>
             {(job.listingSlug || listingSlug) && (
-              <a className="mp-btn mp-btn--primary" href={`/${locale}/catalog/${job.listingSlug || listingSlug}`}>
+              <a
+                className="mp-btn mp-btn--primary"
+                href={`/${locale}/catalog/${job.listingSlug || listingSlug}`}
+              >
                 {copy.designer_view_listing}
               </a>
             )}

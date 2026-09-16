@@ -231,6 +231,8 @@ export function SearchClient({
 
       if (data.next === 'design_assist') {
         setIntentInfo(copy.search_intent_design);
+        const designHref = `/${ui}/designer`;
+        setDeepLink(designHref);
         if (data.searchQuery) {
           sessionStorage.setItem(SEARCH_QUERY_STORAGE_KEY, JSON.stringify(data.searchQuery));
           await runSearch(data.searchQuery);
@@ -304,7 +306,7 @@ export function SearchClient({
           {deepLink ? (
             <p style={{ marginTop: '0.75rem' }}>
               <a className="mp-btn mp-btn--primary" href={deepLink}>
-                {copy.search_go_routed}
+                {intentNext === 'design_assist' ? copy.search_go_designer : copy.search_go_routed}
               </a>
             </p>
           ) : null}
@@ -352,6 +354,7 @@ export function SearchClient({
                   currency: hit.preview.currency,
                   uomCode: hit.preview.uomCode,
                   city: hit.preview.facilityPublic?.city,
+                  imageUrl: hit.preview.imageUrl,
                 }}
               />
             ))}

@@ -248,6 +248,18 @@ export class ProfessionalLeadsService {
         canSell: true,
         isProfessional: true,
         primarySpecialty: true,
+        seoTitle: true,
+        professionalProfile: {
+          select: {
+            profileScore: true,
+            avatarUrl: true,
+            identityVerifiedAt: true,
+            mobileVerifiedAt: true,
+            reviewCount: true,
+            ratingAvg: true,
+            displayName: true,
+          },
+        },
         facilities: {
           where: { status: 'ACTIVE', isPublicLocation: true },
           take: 5,
@@ -310,12 +322,18 @@ export class ProfessionalLeadsService {
 
       return {
         id: o.id,
-        name: o.name,
+        name: o.professionalProfile?.displayName || o.name,
         slug: o.slug,
         canSell: o.canSell,
         isProfessional: o.isProfessional,
         specialty: o.primarySpecialty,
         specialtyLabel: specialtyLabel(o.primarySpecialty, locale),
+        profileScore: o.professionalProfile?.profileScore ?? 0,
+        avatarUrl: o.professionalProfile?.avatarUrl ?? null,
+        identityVerified: Boolean(o.professionalProfile?.identityVerifiedAt),
+        mobileVerified: Boolean(o.professionalProfile?.mobileVerifiedAt),
+        reviewCount: o.professionalProfile?.reviewCount ?? 0,
+        ratingAvg: o.professionalProfile?.ratingAvg ?? null,
         locations,
         serviceAreas: areas,
         distanceKm: bestDistance ?? null,
@@ -346,10 +364,13 @@ export class ProfessionalLeadsService {
         return locHit || areaHit;
       })
       .sort((a, b) => {
-        if (a.distanceKm == null && b.distanceKm == null) return 0;
+        const scoreDiff = (b.profileScore || 0) - (a.profileScore || 0);
+        if (Math.abs(scoreDiff) >= 5) return scoreDiff;
+        if (a.distanceKm == null && b.distanceKm == null) return scoreDiff;
         if (a.distanceKm == null) return 1;
         if (b.distanceKm == null) return -1;
-        return a.distanceKm - b.distanceKm;
+        const dist = a.distanceKm - b.distanceKm;
+        return dist !== 0 ? dist : scoreDiff;
       })
       .slice(0, 60);
   }

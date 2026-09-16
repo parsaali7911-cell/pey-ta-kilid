@@ -20,7 +20,11 @@ export const AI_PROVIDER = Symbol('AI_PROVIDER');
       provide: AI_PROVIDER,
       useFactory: (): AiProvider => {
         if (appEnv.AI_PROVIDER === 'openai' && appEnv.OPENAI_API_KEY) {
-          return new OpenAiProvider(appEnv.OPENAI_API_KEY, appEnv.OPENAI_MODEL);
+          return new OpenAiProvider(
+            appEnv.OPENAI_API_KEY,
+            appEnv.OPENAI_MODEL,
+            appEnv.OPENAI_IMAGE_MODEL,
+          );
         }
         void appEnv.AI_PROVIDER;
         return new NullAiProvider();

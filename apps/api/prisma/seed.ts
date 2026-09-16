@@ -11,6 +11,11 @@ import {
   PrismaClient,
   TextDirection,
 } from '@prisma/client';
+import {
+  SEO_LOCALES,
+  autoGenerateListingSeo,
+  autoGenerateProfessionalSeo,
+} from '@peytakilid/shared-types';
 
 loadDotenv({ path: resolve(__dirname, '../../../.env') });
 
@@ -1238,6 +1243,87 @@ async function main() {
   console.log(`Demo buyer org ready: ${buyerOrg.slug}`);
 
   await seedLocatedOrgs(seller);
+  await seedAutoSeo();
+}
+
+/** Deterministic SEO for seed listings/pros — same templates as runtime hooks. */
+async function seedAutoSeo() {
+  const listings = await prisma.listing.findMany({
+    include: {
+      category: { select: { nameEn: true, nameFa: true, nameAr: true } },
+      facility: { include: { address: { select: { city: true } } } },
+    },
+  });
+  for (const listing of listings) {
+    const city = listing.facility?.address?.city || null;
+    for (const locale of SEO_LOCALES) {
+      const categoryName =
+        locale === 'fa'
+          ? listing.category.nameFa || listing.category.nameEn
+          : locale === 'ar'
+            ? listing.category.nameAr || listing.category.nameEn
+            : listing.category.nameEn;
+      const generated = autoGenerateListingSeo({
+        title: listing.title,
+        description: listing.description,
+        categoryName,
+        city,
+        locale,
+        brand: locale === 'fa' ? 'پی‌تا‌کلید' : locale === 'ar' ? 'بي تا كليد' : 'Peytakilid',
+      });
+      for (const [field, value] of [
+        ['seoTitle', generated.seoTitle],
+        ['seoDescription', generated.seoDescription],
+      ] as const) {
+        await prisma.localizedContent.upsert({
+          where: {
+            entityType_entityId_localeCode_field: {
+              entityType: 'LISTING',
+              entityId: listing.id,
+              localeCode: locale,
+              field,
+            },
+          },
+          create: {
+            entityType: 'LISTING',
+            entityId: listing.id,
+            localeCode: locale,
+            field,
+            value,
+          },
+          update: { value },
+        });
+      }
+    }
+  }
+
+  const pros = await prisma.organization.findMany({
+    where: { isProfessional: true },
+    include: {
+      facilities: {
+        where: { isPublicLocation: true },
+        take: 1,
+        include: { address: { select: { city: true, province: true } } },
+      },
+    },
+  });
+  for (const org of pros) {
+    const city = org.facilities[0]?.address?.city || null;
+    const province = org.facilities[0]?.address?.province || null;
+    const fa = autoGenerateProfessionalSeo({
+      name: org.name,
+      specialtyLabel: org.primarySpecialty,
+      city,
+      province,
+      locale: 'fa',
+      brand: 'پی‌تا‌کلید',
+    });
+    await prisma.organization.update({
+      where: { id: org.id },
+      data: { seoTitle: fa.seoTitle, seoDescription: fa.seoDescription },
+    });
+  }
+  console.log(`Auto SEO seeded for ${listings.length} listings + ${pros.length} professionals`);
 }
 
 async function ensureOrgLocation(input: {

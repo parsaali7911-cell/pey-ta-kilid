@@ -17,11 +17,13 @@ export function MarketplaceListingCard({
   locale,
   copy,
   badge,
+  showDesignCta = true,
 }: {
   listing: MarketplaceListingCardData & { city?: string | null };
   locale: Locale;
   copy: Record<string, string>;
   badge?: string;
+  showDesignCta?: boolean;
 }) {
   const hasPrice = listing.displayPrice != null && Number(listing.displayPrice) > 0;
   const priceLabel = hasPrice
@@ -54,6 +56,17 @@ export function MarketplaceListingCard({
           </span>
         </div>
       </a>
+      {showDesignCta ? (
+        <div className="mp-stone-card__actions" style={{ padding: '0 0.85rem 0.85rem' }}>
+          <a
+            className="mp-btn"
+            href={`/${locale}/designer?listing=${encodeURIComponent(listing.slug)}`}
+            style={{ width: '100%', textAlign: 'center' }}
+          >
+            {copy.mp_try_design || copy.listing_try_design}
+          </a>
+        </div>
+      ) : null}
     </article>
   );
 }

@@ -8,6 +8,7 @@ import { FacilityType, OrgRole, PlatformRole } from '@prisma/client';
 import { AuditService } from '../common/audit.service';
 import { resolveIranPlace } from '../geo/iran-place';
 import { PrismaService } from '../prisma/prisma.service';
+import { SeoContentService } from '../seo/seo-content.service';
 import {
   CreateOrganizationDto,
   UpdateOrganizationCapabilitiesDto,
@@ -18,6 +19,7 @@ export class IdentityService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly seoContent: SeoContentService,
   ) {}
 
   async createOrganization(userId: string, dto: CreateOrganizationDto) {
@@ -139,6 +141,15 @@ export class IdentityService {
       },
     });
 
+    if (org.isProfessional) {
+      await this.seoContent.ensureProfessionalSeo(org.id);
+      await this.prisma.professionalProfile.upsert({
+        where: { organizationId: org.id },
+        create: { organizationId: org.id, displayName: org.name },
+        update: {},
+      });
+    }
+
     return org;
   }
 
@@ -206,6 +217,9 @@ export class IdentityService {
       action: 'organization.capabilities_updated',
       metadata: dto as Record<string, unknown>,
     });
+    if (org.isProfessional) {
+      await this.seoContent.ensureProfessionalSeo(organizationId);
+    }
     return org;
   }
 

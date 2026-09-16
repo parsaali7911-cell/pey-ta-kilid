@@ -1,16 +1,10 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import {
-  apiAuthed,
-  fetchMe,
-  getAccessToken,
-  type AuthUser,
-} from '@/lib/auth-client';
 import { apiPostClient, apiUrl } from '@/lib/api';
 import type { Locale } from '@/lib/i18n-public';
 import { PROFESSIONAL_SPECIALTY_OPTIONS } from '@/lib/lexicon/specialties';
+import { ProfessionalOnboardWizard } from './professional-public-client';
 
 type ProOrg = {
   id: string;
@@ -19,6 +13,12 @@ type ProOrg = {
   specialty?: string | null;
   specialtyLabel?: string | null;
   distanceKm?: number | null;
+  profileScore?: number;
+  avatarUrl?: string | null;
+  identityVerified?: boolean;
+  mobileVerified?: boolean;
+  reviewCount?: number;
+  ratingAvg?: number | null;
   locations: Array<{
     name: string;
     type: string;
@@ -45,11 +45,7 @@ export default function ProfessionalsClient({
   initialSpecialty?: string;
   initialCity?: string;
 }) {
-  const router = useRouter();
-  const [user, setUser] = useState<AuthUser | null>(null);
   const [directory, setDirectory] = useState<ProOrg[]>([]);
-  const [orgName, setOrgName] = useState('');
-  const [orgSlug, setOrgSlug] = useState('');
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
@@ -73,56 +69,8 @@ export default function ProfessionalsClient({
       qs.set('includeSellers', findMode ? '1' : '0');
       const dir = await fetch(apiUrl(`/professionals/directory?${qs.toString()}`)).then((r) => r.json());
       setDirectory(Array.isArray(dir) ? dir : []);
-      if (getAccessToken()) {
-        try {
-          setUser(await fetchMe());
-        } catch {
-          setUser(null);
-        }
-      }
     })();
   }, [locale, findMode, city, specialty]);
-
-  async function registerProOrg(e: FormEvent) {
-    e.preventDefault();
-    if (!getAccessToken()) {
-      router.push(
-        `/${locale}/register?intent=professional&specialty=${encodeURIComponent(specialty)}&city=${encodeURIComponent(city)}`,
-      );
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      await apiAuthed('/organizations', {
-        method: 'POST',
-        json: {
-          name: orgName.trim(),
-          slug: (orgSlug || orgName)
-            .toLowerCase()
-            .replace(/[^a-z0-9-]+/g, '-')
-            .replace(/^-|-$/g, ''),
-          canSell: true,
-          canBuy: false,
-          isProfessional: true,
-          primarySpecialty: specialty,
-          location: {
-            city: city.trim(),
-            countryCode: 'IR',
-            line1: city.trim(),
-          },
-        },
-      });
-      setMsg(copy.pro_org_created);
-      setOrgName('');
-      setOrgSlug('');
-      router.push(`/${locale}/seller?tab=pro&city=${encodeURIComponent(city)}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function submitLead(e: FormEvent) {
     e.preventDefault();
@@ -184,18 +132,27 @@ export default function ProfessionalsClient({
           <ul className="panel-list">
             {directory.map((o) => (
               <li key={o.id}>
-                <strong>{o.name}</strong>
+                <a href={`/${locale}/professionals/${o.slug}`}>
+                  <strong>{o.name}</strong>
+                </a>
                 {o.specialtyLabel ? <span className="panel-muted"> · {o.specialtyLabel}</span> : null}
+                {o.profileScore != null ? (
+                  <span className="panel-muted"> · {o.profileScore}/100</span>
+                ) : null}
+                {o.identityVerified ? <span className="panel-ok"> · ✓</span> : null}
+                {o.ratingAvg != null ? (
+                  <span className="panel-muted">
+                    {' '}
+                    · ★ {o.ratingAvg.toFixed(1)} ({o.reviewCount || 0})
+                  </span>
+                ) : null}
                 {o.distanceKm != null ? (
                   <span className="panel-muted"> · {o.distanceKm.toFixed(1)} km</span>
                 ) : null}
                 <div className="panel-muted">
                   {o.locations
-                    .map((l) =>
-                      [l.name, l.city, l.province, l.latitude != null ? `${l.latitude.toFixed(3)},${l.longitude?.toFixed(3)}` : null]
-                        .filter(Boolean)
-                        .join(' · '),
-                    )
+                    .map((l) => [l.city, l.province].filter(Boolean).join('، '))
+                    .filter(Boolean)
                     .join(' | ') || '—'}
                 </div>
               </li>
@@ -206,48 +163,12 @@ export default function ProfessionalsClient({
       ) : null}
 
       <div className="panel-grid-2" style={{ gap: '1rem', alignItems: 'start' }}>
-        <section className="panel-card">
-          <h2>{copy.pro_register_title}</h2>
-          <p className="panel-muted">{copy.pro_register_lead}</p>
-          {!user ? (
-            <p>
-              <a
-                className="mp-btn mp-btn--primary"
-                href={`/${locale}/register?intent=professional&specialty=${encodeURIComponent(specialty)}&city=${encodeURIComponent(city)}`}
-              >
-                {copy.auth_register_cta}
-              </a>{' '}
-              <a
-                className="mp-btn"
-                href={`/${locale}/login?next=${encodeURIComponent(`/${locale}/professionals?onboard=1&specialty=${specialty}&city=${city}`)}`}
-              >
-                {copy.auth_login_cta}
-              </a>
-            </p>
-          ) : (
-            <form className="panel-form" onSubmit={registerProOrg}>
-              <label>
-                {copy.seller_org_name}
-                <input required value={orgName} onChange={(e) => setOrgName(e.target.value)} />
-              </label>
-              <label>
-                {copy.seller_org_slug}
-                <input value={orgSlug} onChange={(e) => setOrgSlug(e.target.value)} placeholder="my-installer" />
-              </label>
-              <label>
-                {copy.pro_specialty}
-                {specialtySelect}
-              </label>
-              <label>
-                {copy.seller_city}
-                <input required value={city} onChange={(e) => setCity(e.target.value)} />
-              </label>
-              <button className="mp-btn mp-btn--primary" type="submit" disabled={busy}>
-                {copy.pro_create_org_cta}
-              </button>
-            </form>
-          )}
-        </section>
+        <ProfessionalOnboardWizard
+          locale={locale}
+          copy={copy}
+          initialSpecialty={specialty}
+          initialCity={city}
+        />
 
         <section className="panel-card">
           <h2>{copy.pro_request_title}</h2>
@@ -291,8 +212,12 @@ export default function ProfessionalsClient({
           <ul className="panel-list">
             {directory.map((o) => (
               <li key={o.id}>
-                <strong>{o.name}</strong>
+                <a href={`/${locale}/professionals/${o.slug}`}>
+                  <strong>{o.name}</strong>
+                </a>
                 {o.specialtyLabel ? ` · ${o.specialtyLabel}` : ''}
+                {o.profileScore != null ? ` · ${o.profileScore}/100` : ''}
+                {o.identityVerified ? ' · ✓' : ''}
                 {o.locations[0]
                   ? ` · ${o.locations[0].city || ''}${o.locations[0].province ? ', ' + o.locations[0].province : ''}`
                   : ''}
