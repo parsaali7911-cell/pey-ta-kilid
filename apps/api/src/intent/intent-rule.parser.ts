@@ -137,6 +137,7 @@ export function parseNaturalLanguageRules(input: RuleParseInput): StructuredRequ
   const journey = classifyJourney(rawText, normalized, {
     categoryHints,
     specialtyHints,
+    hasImageAsset: Boolean(input.imageAssetId),
   });
 
   let intent = classifyIntent(normalized, {
@@ -157,6 +158,9 @@ export function parseNaturalLanguageRules(input: RuleParseInput): StructuredRequ
   } else if (journey === PromptJourney.DESIGN_ASSIST) {
     intent = RequestIntent.DESIGN_ASSIST;
   } else if (journey === PromptJourney.BUY_PRODUCT) {
+    intent = RequestIntent.PRODUCT;
+  } else if (intent === RequestIntent.AMBIGUOUS && rawText.trim().length >= 3) {
+    // Homepage hub: free text always becomes a product search unless role cues say otherwise.
     intent = RequestIntent.PRODUCT;
   }
 
@@ -226,7 +230,7 @@ export function buildClarificationPrompt(
 function classifyJourney(
   rawText: string,
   normalized: string,
-  ctx: { categoryHints: string[]; specialtyHints: string[] },
+  ctx: { categoryHints: string[]; specialtyHints: string[]; hasImageAsset?: boolean },
 ): PromptJourney {
   const sellerSelf =
     /(?:^|[\s،,])(?:من\s+)?(?:یک\s+)?(?:فروشنده|تأمین[\u200c\s]*کننده|تامین[\u200c\s]*کننده|تولیدکننده|کارخانه)(?:\s+ی|\s+یِ)?/i.test(
@@ -282,6 +286,16 @@ function classifyJourney(
   }
 
   if (hasDesignCue(normalized)) return PromptJourney.DESIGN_ASSIST;
+  // Photo alone (no buy/sell/category cues) → design assist; photo+need text still buys/searches.
+  if (
+    ctx.hasImageAsset &&
+    !sellerSelf &&
+    !proTradeWord &&
+    !buyerProduct &&
+    !ctx.categoryHints.length
+  ) {
+    return PromptJourney.DESIGN_ASSIST;
+  }
   if (ctx.specialtyHints.length > 0 && !ctx.categoryHints.length && !buyerProduct) {
     return PromptJourney.FIND_PROFESSIONAL;
   }
@@ -290,6 +304,10 @@ function classifyJourney(
     return PromptJourney.UNKNOWN;
   }
   if (ctx.categoryHints.length > 0) return PromptJourney.BUY_PRODUCT;
+  // Any free-form "want/need/buy" text → buyer search, even without lexicon category hit.
+  if (buyerProduct || seeker) return PromptJourney.BUY_PRODUCT;
+  // Non-empty prompt with no sell/pro role → default to catalog search from the homepage hub.
+  if (rawText.trim().length >= 3) return PromptJourney.BUY_PRODUCT;
   return PromptJourney.UNKNOWN;
 }
 
@@ -583,38 +601,34 @@ function computeMissingFields(input: {
   const missing: string[] = [];
   const journey = input.journey || PromptJourney.UNKNOWN;
 
-  if (journey === PromptJourney.SELL_PRODUCT) {
-    if (!input.categoryHints.length) missing.push('categoryHints');
-    return missing;
-  }
   if (journey === PromptJourney.BUY_PRODUCT) {
-    // Buyer prompts should open search/RFQ with category; qty/city refine ranking.
-    if (!input.categoryHints.length) missing.push('categoryHints');
+    // Free-form buyer prompts: search with whatever we extracted; do not block on category.
     return missing;
   }
   if (journey === PromptJourney.REGISTER_PROFESSIONAL) {
-    if (!input.specialtyHints.length) missing.push('specialtyHints');
+    // Specialty optional — onboard form can collect it.
     return missing;
   }
   if (journey === PromptJourney.FIND_PROFESSIONAL) {
-    if (!input.specialtyHints.length) missing.push('specialtyHints');
-    if (!input.location?.city && !input.location?.province) missing.push('location.city');
+    // City/specialty refine matching; empty still opens directory.
+    return missing;
+  }
+  if (journey === PromptJourney.SELL_PRODUCT) {
+    // Seller wizard can pick category; don't block the journey.
     return missing;
   }
 
-  if (input.intent === RequestIntent.AMBIGUOUS) missing.push('intent');
+  if (input.intent === RequestIntent.AMBIGUOUS && !input.categoryHints.length && !input.specialtyHints.length) {
+    // Keep going — free text still becomes a catalog search.
+    return missing;
+  }
 
   if (input.intent === RequestIntent.PRODUCT || input.intent === RequestIntent.DESIGN_ASSIST) {
-    if (!input.categoryHints.length) missing.push('categoryHints');
-    if (input.intent === RequestIntent.PRODUCT) {
-      if (input.quantity == null) missing.push('quantity');
-      if (!input.uomCode) missing.push('uomCode');
-    }
+    // Quantity/UoM are ranking refinements, not blockers for homepage prompt.
   }
 
   if (input.intent === RequestIntent.PROFESSIONAL) {
-    if (!input.specialtyHints.length) missing.push('specialtyHints');
-    if (!input.location?.city) missing.push('location.city');
+    // Directory opens even without specialty/city; filters apply when present.
   }
 
   if (input.budget && input.budget.max != null && !input.budget.currency) {

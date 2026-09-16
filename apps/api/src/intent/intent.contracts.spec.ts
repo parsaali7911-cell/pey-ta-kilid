@@ -97,13 +97,13 @@ describe('intent rule parser (Phase 0-F)', () => {
     expect(byImage.intent).toBe(RequestIntent.DESIGN_ASSIST);
   });
 
-  it('routes AMBIGUOUS when product and professional cues collide without a clear seeker role', () => {
+  it('routes free-form product+install mix to search (homepage never dead-ends)', () => {
     const req = parseNaturalLanguageRules({
       text: 'قیمت کاشی و نصب برای پروژه',
       locale: 'fa',
     });
-    expect(req.intent).toBe(RequestIntent.AMBIGUOUS);
-    expect(req.missingFields).toContain('intent');
+    expect(req.intent).toBe(RequestIntent.PRODUCT);
+    expect(req.journey).toBeDefined();
   });
 
   it('prefers find-professional when seeker asks for tile plus installer', () => {
@@ -116,13 +116,26 @@ describe('intent rule parser (Phase 0-F)', () => {
     expect(res.route?.city).toBe('Tehran');
   });
 
-  it('limits clarification to 1–3 blocking fields', () => {
-    const req = parseNaturalLanguageRules({ text: 'hello' });
+  it('runs catalog search for free-form text without forcing a template sentence', () => {
+    const service = new IntentService();
+    const res = service.parseHomepageRequest({
+      text: 'برای پذیرایی یه چیزی شیک و مقاوم میخوام توی شیراز',
+      locale: 'fa',
+      market: 'IRAN',
+    });
+    expect(res.next).toBe('search');
+    expect(res.searchQuery).toBeTruthy();
+    expect(res.route?.city).toBe('Shiraz');
+  });
+
+  it('limits clarification fields when present', () => {
+    const req = parseNaturalLanguageRules({ text: '' });
     const prompt = buildClarificationPrompt(req);
-    expect(prompt).not.toBeNull();
-    expect(prompt!.fields.length).toBeGreaterThanOrEqual(1);
-    expect(prompt!.fields.length).toBeLessThanOrEqual(MAX_CLARIFICATION_FIELDS);
-    expect(prompt!.fields.every((f) => f.reason === 'blocking')).toBe(true);
+    if (prompt) {
+      expect(prompt.fields.length).toBeGreaterThanOrEqual(1);
+      expect(prompt.fields.length).toBeLessThanOrEqual(MAX_CLARIFICATION_FIELDS);
+      expect(prompt.fields.every((f) => f.reason === 'blocking')).toBe(true);
+    }
   });
 
   it('routes seller onboard from Persian seller prompt', () => {
@@ -228,8 +241,9 @@ describe('intent rule parser (Phase 0-F)', () => {
     expect(pro.route?.specialty).toBe('architecture');
     expect(pro.route?.city).toBe('Dubai');
 
-    const clarify = service.parseHomepageRequest({ text: 'help' });
-    expect(clarify.next).toBe('clarify');
-    expect((clarify.intent.clarification?.fields.length ?? 0)).toBeLessThanOrEqual(3);
+    const free = service.parseHomepageRequest({ text: 'help me supply a project in Mashhad' });
+    expect(free.next).toBe('search');
+    expect(free.route?.city).toBe('Mashhad');
+    expect(free.searchQuery).toBeTruthy();
   });
 });

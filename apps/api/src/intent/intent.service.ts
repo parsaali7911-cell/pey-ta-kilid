@@ -16,20 +16,23 @@ import {
 
 /**
  * Deterministic intent path only.
- * Does not call AiGateway / LLMs. Never invents price, stock, seller, or availability.
+ * Any free-form homepage prompt becomes an action (search / onboard / find pro).
+ * Does not invent price, stock, seller, or availability.
  */
 @Injectable()
 export class IntentService {
   parseHomepageRequest(
     input: HomepageNaturalLanguageRequest,
   ): HomepageNaturalLanguageResponse {
+    const text = (input.text ?? '').trim();
     const requirements = parseNaturalLanguageRules({
-      text: input.text,
+      text,
       locale: input.locale ?? null,
       market: input.market ?? null,
       imageAssetId: input.imageAssetId ?? null,
     });
 
+    // Soft clarification only — never blocks free-form search on the homepage hub.
     const clarification = buildClarificationPrompt(requirements);
     const intentResult: IntentResult = {
       intent: requirements.intent,
@@ -44,17 +47,6 @@ export class IntentService {
       city: requirements.location?.city ?? null,
       province: requirements.location?.province ?? null,
     };
-
-    if (clarification && clarification.fields.length > 0) {
-      return {
-        intent: intentResult,
-        next: 'clarify',
-        searchQuery: null,
-        rfqDraft: null,
-        professionalLead: null,
-        route,
-      };
-    }
 
     const journey = requirements.journey || PromptJourney.UNKNOWN;
 
@@ -129,20 +121,29 @@ export class IntentService {
       };
     }
 
+    // Default for any free-form prompt: run catalog search with extracted filters.
     const searchQuery = requirementsToSearchQuery(requirements);
-    const rfqDraft: RfqDraftFromRequirements | null =
-      requirements.intent === RequestIntent.PRODUCT
-        ? {
-            requirements,
-            suggestedListingIds: [...requirements.listingIdHints],
-            buyerNotes: null,
-            status: 'draft_contract',
-          }
-        : null;
+    const rfqDraft: RfqDraftFromRequirements = {
+      requirements,
+      suggestedListingIds: [...requirements.listingIdHints],
+      buyerNotes: null,
+      status: 'draft_contract',
+    };
+
+    if (!text) {
+      return {
+        intent: intentResult,
+        next: 'clarify',
+        searchQuery: null,
+        rfqDraft: null,
+        professionalLead: null,
+        route,
+      };
+    }
 
     return {
       intent: intentResult,
-      next: rfqDraft ? 'search' : 'clarify',
+      next: 'search',
       searchQuery,
       rfqDraft,
       professionalLead: null,

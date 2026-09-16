@@ -1,23 +1,24 @@
 import { SiteSearchBar } from '@/components/search/SiteSearchBar';
 import type { Locale } from '@/lib/i18n-public';
 
+/** Optional chips only — any free-form prompt works; these are not required templates. */
 const EXAMPLE_PROMPTS_FA = [
-  'درب چوبی توی کرج با کمترین قیمت',
-  'نصاب کاشی در رشت',
-  'می‌خواهم سرامیک کف بفروشم در تهران',
-  'متخصص کابینت در اصفهان',
+  'برای آشپزخانه کابینت می‌خوام توی اصفهان',
+  'نقاش ساختمان اطراف قشم',
+  'می‌خواهم میلگرد بفروشم از انبار تهران',
+  'شیرآلات با قیمت مناسب برای پروژه در یزد',
 ];
 
 const EXAMPLE_PROMPTS_EN = [
-  'Wooden doors in Karaj at the lowest price',
-  'Tile installer in Rasht',
-  'I want to sell floor ceramic in Tehran',
-  'Cabinet maker in Isfahan',
+  'Kitchen cabinets for a project in Isfahan',
+  'Building painter near Qeshm',
+  'I want to sell rebar from a Tehran warehouse',
+  'Affordable faucets for a job in Yazd',
 ];
 
 /**
- * Stylish search-first hero — one prompt for buyer / seller / professional.
- * Photo + voice live inside SiteSearchBar.
+ * Stylish search-first hero — one free-form prompt for buyer / seller / professional.
+ * Photo + voice live inside SiteSearchBar. Example chips are optional hints only.
  */
 export function MarketplaceHero({
   copy,
@@ -65,6 +66,8 @@ export function MarketplaceHero({
             suggestions={examples}
           />
         </div>
+
+        <p className="mp-hero__freeform-note">{copy.mp_prompt_freeform}</p>
 
         <ul className="mp-hero__journeys" aria-label={copy.mp_journey_label}>
           <li>

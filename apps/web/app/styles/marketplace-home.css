@@ -1694,6 +1694,13 @@ body.rtl .header-supplier-link {
   font-weight: 600;
 }
 
+.mp-hero__freeform-note {
+  margin: 0.85rem auto 0;
+  max-width: 48ch;
+  color: var(--mp-muted);
+  font-size: 0.86rem;
+}
+
 .mp-hub-trust {
   padding: 0 var(--mp-x) 1.5rem;
 }
