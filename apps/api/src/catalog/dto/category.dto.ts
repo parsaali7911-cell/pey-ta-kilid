@@ -26,6 +26,11 @@ export class CreateCategoryDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-z0-9]+$/)
+  defaultUomCode?: string;
 }
 
 export class UpdateCategoryDto {
@@ -53,4 +58,9 @@ export class UpdateCategoryDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-z0-9]+$/)
+  defaultUomCode?: string | null;
 }

@@ -13,3 +13,8 @@ peytakilid*.bundle
 peytakilid*.tar.gz
 *.bundle
 /tmp/
+
+# archives
+*.tar.gz
+*.bundle
+peytakilid.bundle

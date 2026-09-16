@@ -142,6 +142,7 @@ export const UOM_CODES = [
   'm3',
   'kg',
   'ton',
+  'l',
   'set',
   'roll',
   'pair',
@@ -157,11 +158,50 @@ export const DEFAULT_UOM_FACTORS_TO_BASE: Record<string, { base: string; factor:
   m: { base: 'm', factor: 1 },
   m2: { base: 'm2', factor: 1 },
   m3: { base: 'm3', factor: 1 },
+  l: { base: 'l', factor: 1 },
   pcs: { base: 'pcs', factor: 1 },
   set: { base: 'set', factor: 1 },
   roll: { base: 'roll', factor: 1 },
   pair: { base: 'pcs', factor: 2 },
   box: { base: 'box', factor: 1 },
+};
+
+/**
+ * Default sales UOM per leaf category slug.
+ * Used by seed + seller UI when category.defaultUomCode is unset.
+ */
+export const CATEGORY_DEFAULT_UOM: Record<string, UomCode> = {
+  'ceramic-tile': 'm2',
+  'porcelain-tile': 'm2',
+  'natural-stone': 'm2',
+  'laminate-flooring': 'm2',
+  'carpet-rugs': 'm2',
+  'wall-tile': 'm2',
+  'paint-coatings': 'l',
+  'gypsum-plaster': 'kg',
+  insulation: 'm2',
+  waterproofing: 'm2',
+  'cement-concrete': 'ton',
+  'steel-rebar': 'ton',
+  'brick-block': 'pcs',
+  doors: 'pcs',
+  windows: 'pcs',
+  cabinets: 'm',
+  'glass-mirrors': 'm2',
+  sanitaryware: 'pcs',
+  'faucets-fixtures': 'pcs',
+  'pipes-fittings': 'm',
+  'electrical-supplies': 'pcs',
+  lighting: 'pcs',
+  hvac: 'pcs',
+  'wood-timber': 'm3',
+  metalwork: 'kg',
+  scaffolding: 'set',
+  elevators: 'pcs',
+  'security-systems': 'set',
+  'landscape-garden': 'm2',
+  'adhesives-sealants': 'kg',
+  'tools-hardware': 'pcs',
 };
 
 export type PublicUser = {

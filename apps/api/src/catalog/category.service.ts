@@ -24,6 +24,7 @@ export class CategoryService {
         nameAr: dto.nameAr,
         parentId: dto.parentId,
         sortOrder: dto.sortOrder ?? 0,
+        defaultUomCode: dto.defaultUomCode,
       },
     });
     await this.syncCategoryNameTranslations(category.id, {
@@ -61,6 +62,7 @@ export class CategoryService {
         parentId: dto.parentId,
         sortOrder: dto.sortOrder,
         isActive: dto.isActive,
+        defaultUomCode: dto.defaultUomCode,
       },
     });
     await this.syncCategoryNameTranslations(id, {
@@ -158,6 +160,7 @@ export class CategoryService {
       nameEn: string;
       nameFa: string | null;
       nameAr: string | null;
+      defaultUomCode: string | null;
       isActive: boolean;
       sortOrder: number;
     },
@@ -186,6 +189,7 @@ export class CategoryService {
       nameEn: category.nameEn,
       nameFa: category.nameFa,
       nameAr: category.nameAr,
+      defaultUomCode: category.defaultUomCode,
       locale,
       isActive: category.isActive,
       sortOrder: category.sortOrder,

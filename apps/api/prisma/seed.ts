@@ -23,6 +23,7 @@ async function upsertCategory(input: {
   nameAr?: string;
   parentId?: string | null;
   sortOrder?: number;
+  defaultUomCode?: string | null;
 }) {
   return prisma.category.upsert({
     where: { slug: input.slug },
@@ -33,6 +34,7 @@ async function upsertCategory(input: {
       parentId: input.parentId ?? null,
       isActive: true,
       sortOrder: input.sortOrder ?? 0,
+      ...(input.defaultUomCode !== undefined ? { defaultUomCode: input.defaultUomCode } : {}),
     },
     create: {
       slug: input.slug,
@@ -41,6 +43,7 @@ async function upsertCategory(input: {
       nameAr: input.nameAr ?? null,
       parentId: input.parentId ?? null,
       sortOrder: input.sortOrder ?? 0,
+      defaultUomCode: input.defaultUomCode ?? null,
     },
   });
 }
@@ -247,13 +250,25 @@ async function seedCatalogTaxonomy() {
     { slug: 'tools-hardware', nameEn: 'Tools & Hardware', nameFa: 'ابزار و یراق', parentId: toolsRoot.id, sortOrder: 8 },
     { slug: 'carpet-rugs', nameEn: 'Carpet & Rugs', nameFa: 'موکت و فرش', parentId: flooring.id, sortOrder: 5 },
   ];
+  const extraBySlug = new Map<string, { id: string }>();
   for (const leaf of extraLeaves) {
-    await upsertCategory(leaf);
+    const row = await upsertCategory(leaf);
+    extraBySlug.set(leaf.slug, row);
   }
 
-  // Shared product attributes (Amazon-like "product details" fields)
-  for (const cat of [ceramic, porcelain, naturalStone, laminate, wallTile]) {
-    await upsertAttr(cat.id, {
+  type AttrSeed = {
+    code: string;
+    dataType: AttributeDataType;
+    nameEn: string;
+    nameFa: string;
+    unit?: string;
+    required?: boolean;
+    enumOptions?: string[];
+    facetOrder?: number;
+  };
+
+  const tileAttrs: AttrSeed[] = [
+    {
       code: 'size_cm',
       dataType: AttributeDataType.NUMBER,
       nameEn: 'Size',
@@ -261,25 +276,25 @@ async function seedCatalogTaxonomy() {
       unit: 'cm',
       required: true,
       facetOrder: 1,
-    });
-    await upsertAttr(cat.id, {
+    },
+    {
       code: 'color',
       dataType: AttributeDataType.STRING,
       nameEn: 'Color',
       nameFa: 'رنگ',
       required: true,
       facetOrder: 2,
-    });
-    await upsertAttr(cat.id, {
+    },
+    {
       code: 'finish',
       dataType: AttributeDataType.ENUM,
       nameEn: 'Finish',
       nameFa: 'سطح',
-      required: false,
+      required: true,
       enumOptions: ['matte', 'glossy', 'polished', 'honed', 'textured'],
       facetOrder: 3,
-    });
-    await upsertAttr(cat.id, {
+    },
+    {
       code: 'thickness_mm',
       dataType: AttributeDataType.NUMBER,
       nameEn: 'Thickness',
@@ -287,62 +302,722 @@ async function seedCatalogTaxonomy() {
       unit: 'mm',
       required: false,
       facetOrder: 4,
-    });
-  }
+    },
+  ];
 
-  await upsertAttr(paint.id, {
-    code: 'color',
-    dataType: AttributeDataType.STRING,
-    nameEn: 'Color',
-    nameFa: 'رنگ',
-    required: true,
-  });
-  await upsertAttr(paint.id, {
-    code: 'coverage_m2_per_liter',
-    dataType: AttributeDataType.NUMBER,
-    nameEn: 'Coverage',
-    nameFa: 'پوشش',
-    unit: 'm2/L',
-    required: false,
-  });
-  await upsertAttr(cement.id, {
-    code: 'grade',
-    dataType: AttributeDataType.STRING,
-    nameEn: 'Grade',
-    nameFa: 'عیار',
-    required: true,
-  });
-  await upsertAttr(steel.id, {
-    code: 'diameter_mm',
-    dataType: AttributeDataType.NUMBER,
-    nameEn: 'Diameter',
-    nameFa: 'قطر',
-    unit: 'mm',
-    required: true,
-  });
-  await upsertAttr(doors.id, {
-    code: 'width_cm',
-    dataType: AttributeDataType.NUMBER,
-    nameEn: 'Width',
-    nameFa: 'عرض',
-    unit: 'cm',
-    required: true,
-  });
-  await upsertAttr(doors.id, {
-    code: 'material',
-    dataType: AttributeDataType.STRING,
-    nameEn: 'Material',
-    nameFa: 'جنس',
-    required: true,
-  });
-  await upsertAttr(windows.id, {
-    code: 'glazing',
-    dataType: AttributeDataType.ENUM,
-    nameEn: 'Glazing',
-    nameFa: 'شیشه',
-    required: true,
-    enumOptions: ['single', 'double', 'triple'],
-  });
+  const leafSpecs: Array<{
+    slug: string;
+    cat: { id: string };
+    uom: string;
+    attrs: AttrSeed[];
+  }> = [
+    { slug: 'ceramic-tile', cat: ceramic, uom: 'm2', attrs: tileAttrs },
+    { slug: 'porcelain-tile', cat: porcelain, uom: 'm2', attrs: tileAttrs },
+    { slug: 'natural-stone', cat: naturalStone, uom: 'm2', attrs: tileAttrs },
+    {
+      slug: 'laminate-flooring',
+      cat: laminate,
+      uom: 'm2',
+      attrs: [
+        {
+          code: 'thickness_mm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Thickness',
+          nameFa: 'ضخامت',
+          unit: 'mm',
+          required: true,
+          facetOrder: 1,
+        },
+        {
+          code: 'color',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Color / décor',
+          nameFa: 'رنگ / طرح',
+          required: true,
+          facetOrder: 2,
+        },
+        {
+          code: 'wear_class',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Wear class',
+          nameFa: 'کلاس سایش',
+          required: true,
+          enumOptions: ['AC3', 'AC4', 'AC5'],
+          facetOrder: 3,
+        },
+      ],
+    },
+    {
+      slug: 'carpet-rugs',
+      cat: extraBySlug.get('carpet-rugs')!,
+      uom: 'm2',
+      attrs: [
+        {
+          code: 'material',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Material',
+          nameFa: 'جنس',
+          required: true,
+          facetOrder: 1,
+        },
+        {
+          code: 'pile_height_mm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Pile height',
+          nameFa: 'ارتفاع پرز',
+          unit: 'mm',
+          required: false,
+          facetOrder: 2,
+        },
+        {
+          code: 'color',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Color',
+          nameFa: 'رنگ',
+          required: true,
+          facetOrder: 3,
+        },
+      ],
+    },
+    { slug: 'wall-tile', cat: wallTile, uom: 'm2', attrs: tileAttrs },
+    {
+      slug: 'paint-coatings',
+      cat: paint,
+      uom: 'l',
+      attrs: [
+        {
+          code: 'color',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Color',
+          nameFa: 'رنگ',
+          required: true,
+          facetOrder: 1,
+        },
+        {
+          code: 'finish_type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Finish',
+          nameFa: 'نوع سطح',
+          required: true,
+          enumOptions: ['matte', 'semi-gloss', 'gloss', 'eggshell'],
+          facetOrder: 2,
+        },
+        {
+          code: 'coverage_m2_per_liter',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Coverage',
+          nameFa: 'پوشش',
+          unit: 'm2/L',
+          required: false,
+          facetOrder: 3,
+        },
+      ],
+    },
+    {
+      slug: 'gypsum-plaster',
+      cat: extraBySlug.get('gypsum-plaster')!,
+      uom: 'kg',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['gypsum', 'cement-plaster', 'ready-mix'],
+          facetOrder: 1,
+        },
+        {
+          code: 'bag_weight_kg',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Bag weight',
+          nameFa: 'وزن کیسه',
+          unit: 'kg',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'insulation',
+      cat: extraBySlug.get('insulation')!,
+      uom: 'm2',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['rockwool', 'glasswool', 'xps', 'eps', 'pu'],
+          facetOrder: 1,
+        },
+        {
+          code: 'thickness_mm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Thickness',
+          nameFa: 'ضخامت',
+          unit: 'mm',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'waterproofing',
+      cat: extraBySlug.get('waterproofing')!,
+      uom: 'm2',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['membrane', 'coating', 'cementitious'],
+          facetOrder: 1,
+        },
+        {
+          code: 'thickness_mm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Thickness',
+          nameFa: 'ضخامت',
+          unit: 'mm',
+          required: false,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'cement-concrete',
+      cat: cement,
+      uom: 'ton',
+      attrs: [
+        {
+          code: 'grade',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Grade',
+          nameFa: 'عیار',
+          required: true,
+          facetOrder: 1,
+        },
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['portland', 'white', 'ready-mix', 'mortar'],
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'steel-rebar',
+      cat: steel,
+      uom: 'ton',
+      attrs: [
+        {
+          code: 'diameter_mm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Diameter',
+          nameFa: 'قطر',
+          unit: 'mm',
+          required: true,
+          facetOrder: 1,
+        },
+        {
+          code: 'grade',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Grade',
+          nameFa: 'گرید',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'brick-block',
+      cat: extraBySlug.get('brick-block')!,
+      uom: 'pcs',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['clay-brick', 'concrete-block', 'aac', 'facing-brick'],
+          facetOrder: 1,
+        },
+        {
+          code: 'size_cm',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Size',
+          nameFa: 'سایز',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'doors',
+      cat: doors,
+      uom: 'pcs',
+      attrs: [
+        {
+          code: 'width_cm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Width',
+          nameFa: 'عرض',
+          unit: 'cm',
+          required: true,
+          facetOrder: 1,
+        },
+        {
+          code: 'height_cm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Height',
+          nameFa: 'ارتفاع',
+          unit: 'cm',
+          required: true,
+          facetOrder: 2,
+        },
+        {
+          code: 'material',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Material',
+          nameFa: 'جنس',
+          required: true,
+          facetOrder: 3,
+        },
+      ],
+    },
+    {
+      slug: 'windows',
+      cat: windows,
+      uom: 'pcs',
+      attrs: [
+        {
+          code: 'width_cm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Width',
+          nameFa: 'عرض',
+          unit: 'cm',
+          required: true,
+          facetOrder: 1,
+        },
+        {
+          code: 'height_cm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Height',
+          nameFa: 'ارتفاع',
+          unit: 'cm',
+          required: true,
+          facetOrder: 2,
+        },
+        {
+          code: 'glazing',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Glazing',
+          nameFa: 'شیشه',
+          required: true,
+          enumOptions: ['single', 'double', 'triple'],
+          facetOrder: 3,
+        },
+      ],
+    },
+    {
+      slug: 'cabinets',
+      cat: extraBySlug.get('cabinets')!,
+      uom: 'm',
+      attrs: [
+        {
+          code: 'material',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Material',
+          nameFa: 'جنس',
+          required: true,
+          enumOptions: ['mdf', 'hdf', 'plywood', 'solid-wood', 'metal'],
+          facetOrder: 1,
+        },
+        {
+          code: 'finish',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Finish',
+          nameFa: 'روکش',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'glass-mirrors',
+      cat: extraBySlug.get('glass-mirrors')!,
+      uom: 'm2',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['clear', 'tempered', 'laminated', 'mirror'],
+          facetOrder: 1,
+        },
+        {
+          code: 'thickness_mm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Thickness',
+          nameFa: 'ضخامت',
+          unit: 'mm',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'sanitaryware',
+      cat: extraBySlug.get('sanitaryware')!,
+      uom: 'pcs',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['toilet', 'washbasin', 'bidet', 'urinal', 'set'],
+          facetOrder: 1,
+        },
+        {
+          code: 'color',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Color',
+          nameFa: 'رنگ',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'faucets-fixtures',
+      cat: extraBySlug.get('faucets-fixtures')!,
+      uom: 'pcs',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['mixer', 'basin', 'shower', 'kitchen', 'valve'],
+          facetOrder: 1,
+        },
+        {
+          code: 'finish',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Finish',
+          nameFa: 'روکش',
+          required: true,
+          enumOptions: ['chrome', 'matte-black', 'gold', 'brushed-nickel'],
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'pipes-fittings',
+      cat: extraBySlug.get('pipes-fittings')!,
+      uom: 'm',
+      attrs: [
+        {
+          code: 'material',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Material',
+          nameFa: 'جنس',
+          required: true,
+          enumOptions: ['pvc', 'upvc', 'pex', 'copper', 'steel', 'pp'],
+          facetOrder: 1,
+        },
+        {
+          code: 'diameter_mm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Diameter',
+          nameFa: 'قطر',
+          unit: 'mm',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'electrical-supplies',
+      cat: extraBySlug.get('electrical-supplies')!,
+      uom: 'pcs',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          facetOrder: 1,
+        },
+        {
+          code: 'rating',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Rating',
+          nameFa: 'ظرفیت / آمپر',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'lighting',
+      cat: extraBySlug.get('lighting')!,
+      uom: 'pcs',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['led-panel', 'downlight', 'chandelier', 'outdoor', 'strip'],
+          facetOrder: 1,
+        },
+        {
+          code: 'wattage',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Wattage',
+          nameFa: 'وات',
+          unit: 'W',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'hvac',
+      cat: extraBySlug.get('hvac')!,
+      uom: 'pcs',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['split', 'package', 'fan-coil', 'boiler', 'radiator'],
+          facetOrder: 1,
+        },
+        {
+          code: 'capacity',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Capacity',
+          nameFa: 'ظرفیت',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'wood-timber',
+      cat: extraBySlug.get('wood-timber')!,
+      uom: 'm3',
+      attrs: [
+        {
+          code: 'species',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Species / type',
+          nameFa: 'نوع چوب',
+          required: true,
+          facetOrder: 1,
+        },
+        {
+          code: 'thickness_mm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Thickness',
+          nameFa: 'ضخامت',
+          unit: 'mm',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'metalwork',
+      cat: extraBySlug.get('metalwork')!,
+      uom: 'kg',
+      attrs: [
+        {
+          code: 'material',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Material',
+          nameFa: 'جنس',
+          required: true,
+          enumOptions: ['steel', 'aluminum', 'stainless', 'iron'],
+          facetOrder: 1,
+        },
+        {
+          code: 'thickness_mm',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Thickness',
+          nameFa: 'ضخامت',
+          unit: 'mm',
+          required: false,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'scaffolding',
+      cat: extraBySlug.get('scaffolding')!,
+      uom: 'set',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['frame', 'tube-clamp', 'mobile'],
+          facetOrder: 1,
+        },
+        {
+          code: 'height_m',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Working height',
+          nameFa: 'ارتفاع کار',
+          unit: 'm',
+          required: false,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'elevators',
+      cat: extraBySlug.get('elevators')!,
+      uom: 'pcs',
+      attrs: [
+        {
+          code: 'capacity_kg',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Capacity',
+          nameFa: 'ظرفیت',
+          unit: 'kg',
+          required: true,
+          facetOrder: 1,
+        },
+        {
+          code: 'floors',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Floors served',
+          nameFa: 'تعداد طبقات',
+          required: true,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'security-systems',
+      cat: extraBySlug.get('security-systems')!,
+      uom: 'set',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['cctv', 'alarm', 'access-control', 'intercom'],
+          facetOrder: 1,
+        },
+        {
+          code: 'channels',
+          dataType: AttributeDataType.NUMBER,
+          nameEn: 'Channels / points',
+          nameFa: 'تعداد کانال',
+          required: false,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'landscape-garden',
+      cat: extraBySlug.get('landscape-garden')!,
+      uom: 'm2',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['turf', 'paver', 'gravel', 'planting', 'irrigation'],
+          facetOrder: 1,
+        },
+      ],
+    },
+    {
+      slug: 'adhesives-sealants',
+      cat: extraBySlug.get('adhesives-sealants')!,
+      uom: 'kg',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.ENUM,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          enumOptions: ['tile-adhesive', 'silicone', 'pu', 'epoxy', 'acrylic'],
+          facetOrder: 1,
+        },
+        {
+          code: 'color',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Color',
+          nameFa: 'رنگ',
+          required: false,
+          facetOrder: 2,
+        },
+      ],
+    },
+    {
+      slug: 'tools-hardware',
+      cat: extraBySlug.get('tools-hardware')!,
+      uom: 'pcs',
+      attrs: [
+        {
+          code: 'type',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Type',
+          nameFa: 'نوع',
+          required: true,
+          facetOrder: 1,
+        },
+        {
+          code: 'size',
+          dataType: AttributeDataType.STRING,
+          nameEn: 'Size',
+          nameFa: 'سایز',
+          required: false,
+          facetOrder: 2,
+        },
+      ],
+    },
+  ];
+
+  for (const spec of leafSpecs) {
+    await prisma.category.update({
+      where: { id: spec.cat.id },
+      data: { defaultUomCode: spec.uom },
+    });
+    for (const attr of spec.attrs) {
+      await upsertAttr(spec.cat.id, attr);
+    }
+  }
 
   // Deactivate junk root if present
   await prisma.category.updateMany({
@@ -351,7 +1026,7 @@ async function seedCatalogTaxonomy() {
   });
 
   console.log(
-    `Catalog taxonomy ready: materials → flooring/wall/structural/openings (+ leaf product types)`,
+    `Catalog taxonomy ready: ${leafSpecs.length} leaf categories with default UoM + attributes`,
   );
 }
 

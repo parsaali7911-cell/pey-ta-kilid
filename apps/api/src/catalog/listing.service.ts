@@ -111,16 +111,26 @@ export class ListingService {
 
   async update(userId: string, listingId: string, dto: UpdateListingDto) {
     const listing = await this.getOwnedWritable(userId, listingId);
-    if (
-      listing.status !== ListingStatus.DRAFT &&
-      listing.status !== ListingStatus.REJECTED
-    ) {
-      throw new BadRequestException('Only DRAFT or REJECTED listings can be edited');
+    const editable =
+      listing.status === ListingStatus.DRAFT ||
+      listing.status === ListingStatus.REJECTED ||
+      listing.status === ListingStatus.APPROVED ||
+      listing.status === ListingStatus.PUBLISHED;
+    if (!editable) {
+      throw new BadRequestException(
+        'Only DRAFT, REJECTED, APPROVED, or PUBLISHED listings can be edited',
+      );
     }
     if (dto.uomCode) this.assertUom(dto.uomCode);
     if (dto.facilityId) {
       await this.facilities.assertFacilityOwnedByOrg(dto.facilityId, listing.organizationId);
     }
+
+    // Published/approved edits go back to review; draft/rejected stay draft.
+    const nextStatus =
+      listing.status === ListingStatus.PUBLISHED || listing.status === ListingStatus.APPROVED
+        ? ListingStatus.PENDING_REVIEW
+        : ListingStatus.DRAFT;
 
     await this.prisma.listing.update({
       where: { id: listingId },
@@ -131,9 +141,12 @@ export class ListingService {
         moq: dto.moq,
         leadTimeDays: dto.leadTimeDays,
         facilityId: dto.facilityId,
-        status: ListingStatus.DRAFT,
+        status: nextStatus,
         rejectionReason: null,
         rejectedAt: null,
+        ...(nextStatus === ListingStatus.PENDING_REVIEW
+          ? { submittedAt: new Date(), publishedAt: null }
+          : {}),
       },
     });
 

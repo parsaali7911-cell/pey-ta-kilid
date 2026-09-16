@@ -14,6 +14,7 @@ import {
 import { apiUrl } from '@/lib/api';
 import type { Locale } from '@/lib/i18n-public';
 import { SellerListingWizard } from '@/components/seller/SellerListingWizard';
+import { SellerListingEditor } from '@/components/seller/SellerListingEditor';
 
 type Org = { id: string; name: string; slug: string; canSell?: boolean; isProfessional?: boolean };
 type Facility = {
@@ -36,16 +37,30 @@ type Listing = {
   publicId?: string;
   slug: string;
   title: string;
+  description?: string | null;
   status: string;
   uomCode?: string;
   moq?: number | null;
   leadTimeDays?: number | null;
   rejectionReason?: string | null;
-  category?: { id?: string; name?: string; nameEn?: string; slug?: string } | null;
+  categoryId?: string;
+  category?: {
+    id?: string;
+    name?: string;
+    nameEn?: string;
+    slug?: string;
+    defaultUomCode?: string | null;
+  } | null;
   facility?: { id?: string; name?: string } | null;
-  price?: { displayPrice?: number; currency?: string } | null;
+  price?: { displayPrice?: number; currency?: string; supplierCost?: number } | null;
   inventory?: { onHand?: number; reserved?: number; available?: number; uomCode?: string } | null;
   media?: ListingMedia[];
+  attributes?: Array<{
+    attributeDefinition?: { code?: string; dataType?: string };
+    valueString?: string | null;
+    valueNumber?: number | null;
+    valueBoolean?: boolean | null;
+  }>;
 };
 type Category = {
   id: string;
@@ -54,6 +69,7 @@ type Category = {
   nameEn?: string;
   nameFa?: string;
   name?: string;
+  defaultUomCode?: string | null;
   children?: Category[];
 };
 
@@ -133,6 +149,7 @@ export default function SellerClient({
   const [mediaListingId, setMediaListingId] = useState('');
   const [listingMedia, setListingMedia] = useState<ListingMedia[]>([]);
   const [stockAdjust, setStockAdjust] = useState('10');
+  const [editListingId, setEditListingId] = useState('');
   const refresh = useCallback(async () => {
     if (!getAccessToken()) {
       const qs = new URLSearchParams();
@@ -536,7 +553,13 @@ export default function SellerClient({
           <section className="panel-card">
             <h2>{copy.seller_listings}</h2>
             <ul className="panel-list">
-              {listings.map((l) => (
+              {listings.map((l) => {
+                const canEditContent =
+                  l.status === 'DRAFT' ||
+                  l.status === 'REJECTED' ||
+                  l.status === 'APPROVED' ||
+                  l.status === 'PUBLISHED';
+                return (
                 <li key={l.id}>
                   <strong>{l.title}</strong> · {l.status}
                   {l.price?.displayPrice != null ? ` · ${l.price.displayPrice} ${l.price.currency}` : ''}
@@ -558,14 +581,54 @@ export default function SellerClient({
                     <button
                       type="button"
                       className={mediaListingId === l.id ? 'mp-btn mp-btn--primary' : 'mp-btn'}
-                      onClick={() => setMediaListingId(l.id)}
+                      onClick={() => {
+                        setEditListingId('');
+                        setMediaListingId(l.id);
+                      }}
                     >
                       {copy.seller_manage_media}
                     </button>
+                    <button
+                      type="button"
+                      className={editListingId === l.id ? 'mp-btn mp-btn--primary' : 'mp-btn'}
+                      disabled={!canEditContent}
+                      title={!canEditContent ? copy.seller_edit_blocked : undefined}
+                      onClick={() => {
+                        setMediaListingId('');
+                        setEditListingId(l.id);
+                      }}
+                    >
+                      {copy.seller_edit}
+                    </button>
                   </div>
                 </li>
-              ))}
+              );
+              })}
             </ul>
+
+            {editListingId ? (
+              (() => {
+                const editing = listings.find((l) => l.id === editListingId);
+                if (!editing) return null;
+                return (
+                  <SellerListingEditor
+                    locale={locale}
+                    copy={copy}
+                    listing={editing}
+                    facilities={facilities}
+                    busy={busy}
+                    setBusy={setBusy}
+                    setError={setError}
+                    setMsg={setMsg}
+                    onCancel={() => setEditListingId('')}
+                    onSaved={() => {
+                      setEditListingId('');
+                      if (orgId) void loadOrgData(orgId);
+                    }}
+                  />
+                );
+              })()
+            ) : null}
 
             {mediaListingId ? (
               <div className="panel-card" style={{ marginTop: '1rem' }}>

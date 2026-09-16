@@ -267,16 +267,18 @@ model RefreshToken {
 }
 
 model Category {
-  id        String   @id @default(cuid())
-  parentId  String?
-  slug      String   @unique
-  nameEn    String
-  nameFa    String?
-  nameAr    String?
-  isActive  Boolean  @default(true)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(cuid())
+  parentId       String?
+  slug           String   @unique
+  nameEn         String
+  nameFa         String?
+  nameAr         String?
+  /// Default sales UOM for listings in this category (locked in seller wizard).
+  defaultUomCode String?
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
   children Category[] @relation("CategoryTree")

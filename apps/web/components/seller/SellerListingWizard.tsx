@@ -12,6 +12,7 @@ export type WizardCategory = {
   name?: string;
   nameEn?: string;
   nameFa?: string;
+  defaultUomCode?: string | null;
 };
 
 export type WizardFacility = {
@@ -177,6 +178,10 @@ export function SellerListingWizard({
       setAttrValues({});
       return;
     }
+    const selected = categories.find((c) => c.id === categoryId);
+    const lockedUom = selected?.defaultUomCode || 'm2';
+    setUomCode(lockedUom);
+
     void fetch(apiUrl(`/categories/${categoryId}/attributes`))
       .then((r) => r.json())
       .then((defs) => {
@@ -195,7 +200,7 @@ export function SellerListingWizard({
         setAttrDefs([]);
         setAttrValues({});
       });
-  }, [categoryId, isLeaf]);
+  }, [categoryId, isLeaf, categories]);
 
   function stepIndex(s: Step) {
     return STEPS.indexOf(s);
@@ -509,7 +514,10 @@ export function SellerListingWizard({
           <div className="panel-grid-3">
             <label>
               {copy.seller_wizard_uom}
-              <input value={uomCode} onChange={(e) => setUomCode(e.target.value)} />
+              <input value={uomCode} readOnly disabled title={copy.seller_wizard_uom_locked} />
+              <span className="panel-muted" style={{ fontSize: '0.85em' }}>
+                {copy.seller_wizard_uom_locked}
+              </span>
             </label>
             <label>
               MOQ
