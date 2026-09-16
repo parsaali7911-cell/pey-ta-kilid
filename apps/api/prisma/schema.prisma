@@ -1,0 +1,1032 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlatformRole {
+  SUPER_ADMIN
+  ADMIN
+  SUPPORT
+  FINANCE
+  USER
+}
+
+enum OrgRole {
+  ORG_OWNER
+  ORG_ADMIN
+  ORG_STAFF
+  ORG_VIEWER
+}
+
+enum AttributeDataType {
+  STRING
+  NUMBER
+  BOOLEAN
+  ENUM
+  RANGE
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+enum MediaStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PRIVATE
+}
+
+enum CurrencyCode {
+  IRR
+  USD
+  EUR
+  AED
+  GBP
+}
+
+enum PriceType {
+  EXW
+  FOB
+  CIF
+  CFR
+  DAP
+  DDP
+  OTHER
+}
+
+enum TextDirection {
+  LTR
+  RTL
+}
+
+enum MarketCode {
+  IRAN
+  INTERNATIONAL
+}
+
+enum LocalizedEntityType {
+  CATEGORY
+  LISTING
+  ATTRIBUTE_DEFINITION
+}
+
+enum RoundingMode {
+  NONE
+  ROUND_NEAREST
+  ROUND_UP
+  ROUND_DOWN
+}
+
+enum InventoryLedgerType {
+  IN
+  OUT
+  RESERVE
+  RELEASE
+  ADJUST
+}
+
+enum ReservationStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+  EXPIRED
+}
+
+enum TranslationStatus {
+  PENDING
+  READY
+  FAILED
+  STALE
+  SKIPPED
+}
+
+enum AiUsageOperation {
+  TRANSLATION
+  COMPLETE
+  EMBED
+  VISION
+}
+
+enum RfqStatus {
+  DRAFT
+  SUBMITTED
+  RESPONDED
+  QUOTED
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum OrderStatus {
+  CONFIRMED
+  AWAITING_PAYMENT
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUBMITTED
+  CONFIRMED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  MANUAL
+  OTHER
+}
+
+enum ErpOutboxStatus {
+  PENDING
+  PROCESSING
+  RETRYING
+  DONE
+  FAILED
+}
+
+enum ErpSyncStatus {
+  PENDING
+  SYNCING
+  SUCCESS
+  FAILED
+  RETRYING
+}
+
+enum FacilityType {
+  FACTORY
+  WAREHOUSE
+  OFFICE
+  SHOWROOM
+  SERVICE_LOCATION
+}
+
+enum FacilityStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  phone        String?      @unique
+  passwordHash String
+  fullName     String?
+  platformRole PlatformRole @default(USER)
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  memberships   OrganizationMember[]
+  refreshTokens RefreshToken[]
+  createdRfqs   Rfq[] @relation("RfqCreatedBy")
+  createdQuotes Quote[] @relation("QuoteCreatedBy")
+  createdOrders Order[] @relation("OrderCreatedBy")
+}
+
+model Organization {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  isActive       Boolean  @default(true)
+  canSell        Boolean  @default(true)
+  canBuy         Boolean  @default(true)
+  isProfessional Boolean  @default(false)
+  /// Primary trade/specialty code for professionals (and optional for sellers).
+  primarySpecialty String?
+  /// ERP party IDs when org participates as buyer (customer) / seller (supplier)
+  erpCustomerExternalId String?
+  erpSupplierExternalId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  members  OrganizationMember[]
+  products Product[]
+  listings Listing[]
+  media    MediaAsset[]
+  facilities Facility[]
+  serviceAreas ServiceArea[]
+  buyerRfqs  Rfq[] @relation("RfqBuyerOrg")
+  sellerRfqTargets RfqTarget[] @relation("RfqSellerOrg")
+  sellerQuotes Quote[] @relation("QuoteSellerOrg")
+  buyerOrders  Order[] @relation("OrderBuyerOrg")
+  sellerOrders Order[] @relation("OrderSellerOrg")
+
+  @@index([isProfessional, isActive])
+  @@index([primarySpecialty])
+}
+
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  orgRole        OrgRole  @default(ORG_VIEWER)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  parentId  String?
+  slug      String   @unique
+  nameEn    String
+  nameFa    String?
+  nameAr    String?
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+
+  attributeDefinitions AttributeDefinition[]
+  products             Product[]
+  listings             Listing[]
+
+  @@index([parentId])
+}
+
+model AttributeDefinition {
+  id                String            @id @default(cuid())
+  categoryId        String
+  code              String
+  dataType          AttributeDataType
+  unit              String?
+  required          Boolean           @default(false)
+  filterable        Boolean           @default(false)
+  facetable         Boolean           @default(false)
+  facetOrder        Int?
+  nameEn            String
+  nameFa            String?
+  nameAr            String?
+  enumOptions       Json?
+  inheritToChildren Boolean           @default(true)
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  category Category         @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  values   AttributeValue[]
+
+  @@unique([categoryId, code])
+  @@index([categoryId])
+}
+
+model Product {
+  id             String   @id @default(cuid())
+  publicId       String   @unique @default(cuid())
+  slug           String   @unique
+  name           String
+  description    String?
+  categoryId     String?
+  organizationId String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  category     Category?      @relation(fields: [categoryId], references: [id])
+  organization Organization?  @relation(fields: [organizationId], references: [id])
+  variants     ProductVariant[]
+  listings     Listing[]
+
+  @@index([categoryId])
+  @@index([organizationId])
+}
+
+model ProductVariant {
+  id        String   @id @default(cuid())
+  productId String
+  sku       String?
+  name      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product    Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attributes AttributeValue[]
+  listings   Listing[]
+
+  @@index([productId])
+  @@unique([productId, sku])
+}
+
+model Listing {
+  id             String        @id @default(cuid())
+  publicId       String        @unique @default(cuid())
+  slug           String        @unique
+  organizationId String
+  categoryId     String
+  productId      String?
+  variantId      String?
+  /// Supply / fulfillment facility for this listing
+  facilityId     String?
+  title          String
+  description    String?
+  uomCode        String
+  moq            Decimal?      @db.Decimal(18, 3)
+  leadTimeDays   Int?
+  status         ListingStatus @default(DRAFT)
+  rejectionReason String?
+  submittedAt    DateTime?
+  publishedAt    DateTime?
+  rejectedAt     DateTime?
+  /// ERP item code/external id — set by SYNC_ORDER item upsert
+  erpItemExternalId String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category     Category         @relation(fields: [categoryId], references: [id])
+  product      Product?         @relation(fields: [productId], references: [id])
+  variant      ProductVariant?  @relation(fields: [variantId], references: [id])
+  facility     Facility?        @relation(fields: [facilityId], references: [id])
+  attributes   AttributeValue[]
+  media        MediaAsset[]
+  price        ListingPrice?
+  inventory    InventoryBalance?
+  ledgerEntries InventoryLedgerEntry[]
+  reservations InventoryReservation[]
+  rfqItems     RfqItem[]
+  rfqTargets   RfqTarget[]
+  quoteItems   QuoteItem[]
+  orderItems   OrderItem[]
+
+  @@index([organizationId])
+  @@index([categoryId, status])
+  @@index([status])
+  @@index([facilityId])
+}
+
+model ListingPrice {
+  id           String       @id @default(cuid())
+  listingId    String       @unique
+  supplierCost Decimal      @db.Decimal(18, 4)
+  displayPrice Decimal      @db.Decimal(18, 4)
+  currency     CurrencyCode @default(USD)
+  priceType    PriceType    @default(EXW)
+  /// FX rate applied when converting cost currency → display (1 if same)
+  fxRateApplied Decimal?    @db.Decimal(18, 8)
+  marginPercentApplied Decimal? @db.Decimal(8, 4)
+  flatFeeApplied       Decimal? @db.Decimal(18, 4)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+}
+
+model PricingSettings {
+  id             String       @id @default(cuid())
+  key            String       @unique @default("default")
+  marginPercent  Decimal      @default(0) @db.Decimal(8, 4)
+  flatFee        Decimal      @default(0) @db.Decimal(18, 4)
+  flatFeeCurrency CurrencyCode?
+  roundingMode   RoundingMode @default(NONE)
+  roundingUnit   Decimal?     @db.Decimal(18, 4)
+  /// Map like { "USD_EUR": 0.92, "EUR_USD": 1.09 }
+  fxRates        Json?
+  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime     @default(now())
+}
+
+model InventoryBalance {
+  id        String   @id @default(cuid())
+  listingId String   @unique
+  onHand    Decimal  @default(0) @db.Decimal(18, 3)
+  reserved  Decimal  @default(0) @db.Decimal(18, 3)
+  uomCode   String
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+}
+
+model InventoryLedgerEntry {
+  id                  String              @id @default(cuid())
+  listingId           String
+  type                InventoryLedgerType
+  quantity            Decimal             @db.Decimal(18, 3)
+  uomCode             String
+  balanceOnHandAfter  Decimal             @db.Decimal(18, 3)
+  balanceReservedAfter Decimal            @db.Decimal(18, 3)
+  reservationId       String?
+  note                String?
+  actorUserId         String?
+  createdAt           DateTime            @default(now())
+
+  listing     Listing               @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  reservation InventoryReservation? @relation(fields: [reservationId], references: [id])
+
+  @@index([listingId, createdAt])
+}
+
+model InventoryReservation {
+  id        String            @id @default(cuid())
+  listingId String
+  quantity  Decimal           @db.Decimal(18, 3)
+  uomCode   String
+  status    ReservationStatus @default(ACTIVE)
+  /// Optional link to commercial order (idempotent reserve-per-order-line)
+  orderId   String?
+  orderItemId String?
+  expiresAt DateTime?
+  createdAt DateTime          @default(now())
+  releasedAt DateTime?
+
+  listing Listing                @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  order   Order?                 @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  ledger  InventoryLedgerEntry[]
+
+  @@unique([orderId, listingId])
+  @@index([listingId, status])
+  @@index([orderId])
+}
+
+model UnitConversion {
+  id       String  @id @default(cuid())
+  fromUom  String
+  toUom    String
+  factor   Decimal @db.Decimal(24, 12)
+  isActive Boolean @default(true)
+
+  @@unique([fromUom, toUom])
+}
+
+model AttributeValue {
+  id                    String   @id @default(cuid())
+  attributeDefinitionId String
+  listingId             String?
+  variantId             String?
+  valueString           String?
+  valueNumber           Decimal? @db.Decimal(18, 6)
+  valueBoolean          Boolean?
+  valueJson             Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  attributeDefinition AttributeDefinition @relation(fields: [attributeDefinitionId], references: [id], onDelete: Cascade)
+  listing             Listing?            @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  variant             ProductVariant?     @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([variantId])
+  @@index([attributeDefinitionId])
+}
+
+model MediaAsset {
+  id             String      @id @default(cuid())
+  publicId       String      @unique @default(cuid())
+  organizationId String
+  listingId      String?
+  storageKey     String
+  url            String?
+  mimeType       String?
+  altText        String?
+  sortOrder      Int         @default(0)
+  status         MediaStatus @default(PENDING)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listing      Listing?     @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([organizationId])
+}
+
+model AuditEvent {
+  id             String   @id @default(cuid())
+  actorUserId    String?
+  organizationId String?
+  entityType     String
+  entityId       String
+  action         String
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([organizationId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model NotificationEvent {
+  id             String    @id @default(cuid())
+  userId         String?
+  organizationId String?
+  type           String
+  title          String
+  body           String?
+  payload        Json?
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([organizationId, createdAt])
+}
+
+/// Extensible locale registry (fa/en/ar + future). Independent from Market.
+model Locale {
+  code        String        @id
+  nameNative  String
+  nameEn      String
+  direction   TextDirection @default(LTR)
+  isActive    Boolean       @default(true)
+  isDefault   Boolean       @default(false)
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+/// Market is independent from locale and from a single currency.
+model Market {
+  code               MarketCode   @id
+  nameEn             String
+  isActive           Boolean      @default(true)
+  defaultCurrency    CurrencyCode
+  /// e.g. ["IRR","USD","EUR","AED"]
+  allowedCurrencies  Json
+  /// e.g. ["EXW","FOB","CIF"] — Incoterm foundation for RFQ/Quote
+  allowedIncoterms   Json
+  sortOrder          Int          @default(0)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+}
+
+/// Field-level translations; does not duplicate Category/Listing rows.
+model LocalizedContent {
+  id         String               @id @default(cuid())
+  entityType LocalizedEntityType
+  entityId   String
+  localeCode String
+  field      String
+  value      String
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  @@unique([entityType, entityId, localeCode, field])
+  @@index([entityType, entityId])
+  @@index([localeCode])
+}
+
+model Address {
+  id         String   @id @default(cuid())
+  countryCode String
+  region     String?
+  province   String?
+  city       String
+  line1      String
+  line2      String?
+  postalCode String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  facilities Facility[]
+}
+
+model GeoPoint {
+  id        String  @id @default(cuid())
+  latitude  Decimal @db.Decimal(10, 7)
+  longitude Decimal @db.Decimal(10, 7)
+  /// Optional accuracy in meters (provider-agnostic)
+  accuracyM Decimal? @db.Decimal(12, 3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  facilities   Facility[]
+  serviceAreas ServiceArea[]
+}
+
+model Facility {
+  id               String         @id @default(cuid())
+  organizationId   String
+  name             String
+  type             FacilityType
+  status           FacilityStatus @default(ACTIVE)
+  addressId        String
+  geoPointId       String?
+  /// When true, coarse public location (city/region/country) may appear on listings
+  isPublicLocation Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  address      Address      @relation(fields: [addressId], references: [id])
+  geoPoint     GeoPoint?    @relation(fields: [geoPointId], references: [id])
+  listings     Listing[]
+  orderItems   OrderItem[]
+
+  @@index([organizationId])
+  @@index([type, status])
+  @@index([addressId])
+}
+
+/// Reusable region/radius area for future filters and Professional service areas.
+model ServiceArea {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String?
+  countryCode    String?
+  region         String?
+  province       String?
+  city           String?
+  centerPointId  String?
+  radiusKm       Decimal? @db.Decimal(10, 3)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  centerPoint  GeoPoint?    @relation(fields: [centerPointId], references: [id])
+
+  @@index([organizationId])
+  @@index([countryCode, region, province, city])
+}
+
+/// AI translation cache/job state — LocalizedContent remains the serving store.
+model TranslationRecord {
+  id             String            @id @default(cuid())
+  entityType     LocalizedEntityType
+  entityId       String
+  field          String
+  sourceLocale   String
+  targetLocale   String
+  sourceHash     String
+  translatedText String?
+  status         TranslationStatus @default(PENDING)
+  provider       String?
+  model          String?
+  errorMessage   String?
+  attemptCount   Int               @default(0)
+  lastAttemptAt  DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@unique([entityType, entityId, field, sourceLocale, targetLocale])
+  @@index([entityType, entityId])
+  @@index([status, updatedAt])
+  @@index([sourceHash])
+}
+
+/// Admin-readable AI usage ledger — never store API keys.
+model AiUsageEvent {
+  id               String           @id @default(cuid())
+  provider         String
+  operation        AiUsageOperation
+  sourceLocale     String?
+  targetLocale     String?
+  model            String?
+  requestCount     Int              @default(1)
+  inputTokens      Int?
+  outputTokens     Int?
+  estimatedCostUsd Decimal?         @db.Decimal(12, 6)
+  entityType       String?
+  entityId         String?
+  field            String?
+  metadata         Json?
+  createdAt        DateTime         @default(now())
+
+  @@index([operation, createdAt])
+  @@index([provider, createdAt])
+  @@index([entityType, entityId])
+}
+
+/// Buyer RFQ — requirements snapshot is immutable after SUBMITTED.
+model Rfq {
+  id                   String    @id @default(cuid())
+  publicId             String    @unique @default(cuid())
+  buyerOrganizationId  String
+  createdByUserId      String
+  status               RfqStatus @default(DRAFT)
+  /// StructuredRequirements snapshot — frozen on submit
+  requirementsSnapshot Json
+  buyerNotes           String?
+  market               String?
+  locale               String?
+  budgetMin            Decimal?  @db.Decimal(18, 4)
+  budgetMax            Decimal?  @db.Decimal(18, 4)
+  budgetCurrency       String?
+  destinationCountryCode String?
+  destinationRegion    String?
+  destinationProvince  String?
+  destinationCity      String?
+  requestedLeadTimeDays Int?
+  submittedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  buyerOrganization Organization @relation("RfqBuyerOrg", fields: [buyerOrganizationId], references: [id], onDelete: Cascade)
+  createdByUser     User         @relation("RfqCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  items             RfqItem[]
+  targets           RfqTarget[]
+  quotes            Quote[]
+  orders            Order[]
+
+  @@index([buyerOrganizationId, status])
+  @@index([createdByUserId])
+  @@index([status, createdAt])
+}
+
+model RfqItem {
+  id                    String   @id @default(cuid())
+  rfqId                 String
+  listingId             String?
+  productId             String?
+  variantId             String?
+  categoryId            String?
+  sellerOrganizationId  String?
+  titleSnapshot         String?
+  quantity              Decimal  @db.Decimal(18, 3)
+  uomCode               String
+  attributeFilters      Json?
+  sortOrder             Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  rfq     Rfq      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  listing Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  @@index([rfqId])
+  @@index([listingId])
+  @@index([sellerOrganizationId])
+}
+
+/// Extensible multi-seller targeting (Phase 0-I may create one target per listing).
+model RfqTarget {
+  id                   String   @id @default(cuid())
+  rfqId                String
+  sellerOrganizationId String
+  listingId            String?
+  createdAt            DateTime @default(now())
+
+  rfq                 Rfq          @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  sellerOrganization  Organization @relation("RfqSellerOrg", fields: [sellerOrganizationId], references: [id], onDelete: Cascade)
+  listing             Listing?     @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  quotes              Quote[]
+
+  @@index([rfqId])
+  @@index([sellerOrganizationId])
+  @@index([listingId])
+}
+
+model Quote {
+  id                   String      @id @default(cuid())
+  publicId             String      @unique @default(cuid())
+  rfqId                String
+  rfqTargetId          String?
+  sellerOrganizationId String
+  createdByUserId      String
+  status               QuoteStatus @default(DRAFT)
+  currency             CurrencyCode
+  priceType            PriceType   @default(EXW)
+  validUntil           DateTime?
+  sellerNotes          String?
+  totalDisplayPrice    Decimal?    @db.Decimal(18, 4)
+  totalBasePrice       Decimal?    @db.Decimal(18, 4)
+  submittedAt          DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  rfq                Rfq          @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  rfqTarget          RfqTarget?   @relation(fields: [rfqTargetId], references: [id], onDelete: SetNull)
+  sellerOrganization Organization @relation("QuoteSellerOrg", fields: [sellerOrganizationId], references: [id], onDelete: Cascade)
+  createdByUser      User         @relation("QuoteCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  items              QuoteItem[]
+  order              Order?
+
+  @@index([rfqId, sellerOrganizationId])
+  @@index([sellerOrganizationId, status])
+  @@index([status, createdAt])
+}
+
+model QuoteItem {
+  id                   String       @id @default(cuid())
+  quoteId              String
+  rfqItemId            String?
+  listingId            String?
+  productId            String?
+  variantId            String?
+  quantity             Decimal      @db.Decimal(18, 3)
+  uomCode              String
+  /// Seller/base price (PricingEngine input) — never expose to buyer
+  basePrice            Decimal      @db.Decimal(18, 4)
+  displayPrice         Decimal      @db.Decimal(18, 4)
+  currency             CurrencyCode
+  priceType            PriceType
+  fxRateApplied        Decimal?     @db.Decimal(18, 8)
+  marginPercentApplied Decimal?     @db.Decimal(8, 4)
+  flatFeeApplied       Decimal?     @db.Decimal(18, 4)
+  leadTimeDays         Int?
+  titleSnapshot        String?
+  sortOrder            Int          @default(0)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  quote   Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  listing Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  @@index([quoteId])
+  @@index([listingId])
+  @@index([rfqItemId])
+}
+
+/// Commercial order created from an accepted Quote — immutable pricing snapshot.
+model Order {
+  id                   String      @id @default(cuid())
+  publicId             String      @unique @default(cuid())
+  quoteId              String      @unique
+  rfqId                String
+  buyerOrganizationId  String
+  sellerOrganizationId String
+  createdByUserId      String
+  status               OrderStatus @default(CONFIRMED)
+  currency             CurrencyCode
+  priceType            PriceType
+  /// Buyer-facing total — immutable snapshot from accepted quote
+  totalDisplayPrice    Decimal     @db.Decimal(18, 4)
+  /// Seller/base total — never expose to buyer
+  totalBasePrice       Decimal     @db.Decimal(18, 4)
+  paymentTermsCode     String      @default("100_ADVANCE")
+  confirmedAt          DateTime?
+  erpExternalId        String?
+  erpSyncStatus        ErpSyncStatus @default(PENDING)
+  erpLastSyncedAt      DateTime?
+  erpSyncError         String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  quote              Quote                 @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  rfq                Rfq                   @relation(fields: [rfqId], references: [id], onDelete: Restrict)
+  buyerOrganization  Organization          @relation("OrderBuyerOrg", fields: [buyerOrganizationId], references: [id], onDelete: Restrict)
+  sellerOrganization Organization          @relation("OrderSellerOrg", fields: [sellerOrganizationId], references: [id], onDelete: Restrict)
+  createdByUser      User                  @relation("OrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  items              OrderItem[]
+  payments           Payment[]
+  paymentSchedule    OrderPaymentSchedule?
+  reservations       InventoryReservation[]
+
+  @@index([buyerOrganizationId, status])
+  @@index([sellerOrganizationId, status])
+  @@index([rfqId])
+  @@index([status, createdAt])
+  @@index([erpSyncStatus])
+  @@index([erpExternalId])
+}
+
+model OrderItem {
+  id                   String       @id @default(cuid())
+  orderId              String
+  quoteItemId          String?
+  listingId            String?
+  productId            String?
+  variantId            String?
+  facilityId           String?
+  quantity             Decimal      @db.Decimal(18, 3)
+  uomCode              String
+  /// Immutable seller/base unit price snapshot
+  basePrice            Decimal      @db.Decimal(18, 4)
+  /// Immutable buyer display unit price snapshot
+  displayPrice         Decimal      @db.Decimal(18, 4)
+  currency             CurrencyCode
+  priceType            PriceType
+  fxRateApplied        Decimal?     @db.Decimal(18, 8)
+  marginPercentApplied Decimal?     @db.Decimal(8, 4)
+  flatFeeApplied       Decimal?     @db.Decimal(18, 4)
+  leadTimeDays         Int?
+  titleSnapshot        String?
+  lineDisplayTotal     Decimal      @db.Decimal(18, 4)
+  lineBaseTotal        Decimal      @db.Decimal(18, 4)
+  sortOrder            Int          @default(0)
+  createdAt            DateTime     @default(now())
+
+  order    Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  listing  Listing?  @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  facility Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([listingId])
+  @@index([facilityId])
+}
+
+model OrderPaymentSchedule {
+  id           String       @id @default(cuid())
+  orderId      String       @unique
+  termsCode    String
+  totalAmount  Decimal      @db.Decimal(18, 4)
+  currency     CurrencyCode
+  createdAt    DateTime     @default(now())
+
+  order        Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  installments PaymentInstallment[]
+}
+
+model PaymentInstallment {
+  id         String        @id @default(cuid())
+  scheduleId String
+  sequence   Int
+  label      String?
+  percent    Decimal       @db.Decimal(5, 2)
+  amount     Decimal       @db.Decimal(18, 4)
+  currency   CurrencyCode
+  dueDate    DateTime
+  status     PaymentStatus @default(PENDING)
+  paidAmount Decimal       @default(0) @db.Decimal(18, 4)
+  paidAt     DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  schedule OrderPaymentSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, sequence])
+  @@index([status, dueDate])
+}
+
+/// Payment boundary — no gateway; submit/confirm only.
+model Payment {
+  id               String        @id @default(cuid())
+  publicId         String        @unique @default(cuid())
+  orderId          String
+  idempotencyKey   String        @unique
+  method           PaymentMethod
+  status           PaymentStatus @default(PENDING)
+  amount           Decimal       @db.Decimal(18, 4)
+  currency         CurrencyCode
+  reference        String?
+  submittedAt      DateTime?
+  confirmedAt      DateTime?
+  verifiedByUserId String?
+  erpExternalId    String?
+  erpSyncStatus    ErpSyncStatus @default(PENDING)
+  erpLastSyncedAt  DateTime?
+  erpSyncError     String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, status])
+  @@index([erpSyncStatus])
+  @@index([erpExternalId])
+}
+
+/// ERP integration outbox — async, retryable, idempotent.
+model ErpOutboxEvent {
+  id             String          @id @default(cuid())
+  jobType        String
+  entityType     String
+  entityId       String
+  idempotencyKey String          @unique
+  status         ErpOutboxStatus @default(PENDING)
+  attempts       Int             @default(0)
+  maxAttempts    Int             @default(5)
+  lastError      String?
+  externalId     String?
+  result         Json?
+  payload        Json?
+  scheduledAt    DateTime        @default(now())
+  createdAt      DateTime        @default(now())
+  processedAt    DateTime?
+
+  @@index([status, scheduledAt])
+  @@index([entityType, entityId])
+}

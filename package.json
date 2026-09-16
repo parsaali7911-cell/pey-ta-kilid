@@ -1,0 +1,22 @@
+{
+  "name": "peytakilid",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @peytakilid/shared-types && npm run build -w @peytakilid/config && npm run build -w @peytakilid/api && npm run build -w @peytakilid/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test -w @peytakilid/api",
+    "dev:api": "npm run dev -w @peytakilid/api",
+    "dev:web": "npm run dev -w @peytakilid/web",
+    "db:generate": "npm run prisma:generate -w @peytakilid/api",
+    "db:migrate": "npm run prisma:migrate -w @peytakilid/api",
+    "db:migrate:deploy": "npm run prisma:migrate:deploy -w @peytakilid/api",
+    "db:seed": "npm run prisma:seed -w @peytakilid/api"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,530 @@
+/* Peytakilid — unified public luxury theme */
+
+/* Typography & display — tokens live in peytakilid-tokens.css */
+
+body.rtl .hero h1,
+body.rtl .section h2,
+body.rtl .product-card__name {
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* ——— Header ——— */
+.site-header.public-header {
+  padding: 1.25rem var(--section-x);
+  border-bottom: 1px solid var(--sc-line);
+  background: rgba(255, 252, 246, 0.92);
+  backdrop-filter: blur(16px) saturate(1.2);
+}
+
+.nav-desktop {
+  gap: 2rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.nav-desktop a {
+  color: var(--sc-ink);
+  position: relative;
+  padding-bottom: 0.2rem;
+}
+
+.nav-desktop a::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform 280ms ease;
+}
+
+.nav-desktop a:hover::after {
+  transform: scaleX(1);
+}
+
+.brand-logo-text {
+  font-family: var(--font-nav);
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  color: var(--sc-ink);
+}
+
+.header-cta.btn {
+  padding: 0.7rem 1.35rem !important;
+}
+
+.lang-switch {
+  border-color: var(--line);
+  border-radius: 0;
+}
+
+.lang-switch a.lang-active {
+  background: transparent;
+  color: var(--accent-strong);
+  border: 1px solid var(--line-strong);
+}
+
+/* ——— Buttons ——— */
+.btn {
+  background: linear-gradient(135deg, var(--sc-teal-deep), var(--sc-teal));
+  border: none;
+  border-radius: var(--sc-radius-sm);
+  color: #fff8ef;
+  font-family: var(--font-nav);
+  font-size: 0.88rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  padding: 0.75rem 1.35rem;
+  text-transform: none;
+  transition: filter 180ms ease, transform 180ms ease;
+}
+
+.btn:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.btn.ghost {
+  background: #fff;
+  border: 1px solid var(--sc-line);
+  color: var(--sc-ink);
+}
+
+.btn.ghost:hover {
+  border-color: var(--sc-teal);
+  color: var(--sc-teal-deep);
+  background: #fff;
+}
+
+.btn-primary-fill {
+  background: linear-gradient(135deg, var(--sc-teal-deep), var(--sc-teal));
+  border: none;
+  color: #fff8ef;
+}
+
+.btn-primary-fill:hover {
+  filter: brightness(1.05);
+  color: #fff8ef;
+}
+
+/* ——— Hero ——— */
+.hero.hero-home {
+  min-height: min(92vh, 920px);
+  align-content: center;
+}
+
+.hero.hero-home .hero-visual,
+.hero.hero-home .hero-visual-marble {
+  background:
+    linear-gradient(105deg, rgba(8, 8, 7, 0.88) 0%, rgba(8, 8, 7, 0.45) 42%, rgba(8, 8, 7, 0.72) 100%),
+    linear-gradient(0deg, rgba(8, 8, 7, 0.92) 0%, transparent 38%),
+    url('/brand/hero-marble.jpg') center / cover no-repeat !important;
+}
+
+.hero-content {
+  max-width: 680px;
+  padding: 5rem var(--section-x);
+  gap: 1.75rem;
+}
+
+.hero-logo {
+  width: 88px !important;
+  height: 88px !important;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-soft);
+}
+
+.hero h1 {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: clamp(2.4rem, 6.5vw, 4.5rem);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  max-width: 14ch;
+  color: var(--ink);
+}
+
+.hero p {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--muted);
+  max-width: 36ch;
+}
+
+.hero-eyebrow {
+  font-family: var(--font-nav);
+  font-size: 0.68rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0;
+}
+
+.cta-row {
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+/* ——— Sections ——— */
+.section {
+  padding: clamp(3.5rem, 8vw, 6.5rem) var(--section-x);
+}
+
+.section h2 {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: clamp(2rem, 4vw, 3rem);
+  letter-spacing: -0.02em;
+}
+
+.section-label {
+  font-family: var(--font-nav);
+  font-size: 0.68rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 0.75rem;
+}
+
+.section-head-minimal {
+  margin-bottom: clamp(2rem, 4vw, 3rem);
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+/* ——— Product cards ——— */
+.grid.grid-luxury {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: clamp(1.25rem, 3vw, 2rem);
+}
+
+.product-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--sc-surface);
+  border: 1px solid var(--sc-line);
+  border-radius: var(--sc-radius);
+  box-shadow: var(--sc-shadow);
+  transition:
+    border-color 300ms ease,
+    transform 400ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 300ms ease;
+  overflow: hidden;
+}
+
+.product-card:hover {
+  border-color: var(--sc-teal);
+  transform: translateY(-4px);
+  box-shadow: 0 18px 48px rgba(26, 23, 20, 0.12);
+}
+
+.product-card__media {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.product-card__media img,
+.product-card__media .product-card__fallback {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.product-card:hover .product-card__media img {
+  transform: scale(1.04);
+}
+
+.product-card__body {
+  padding: 1.25rem 1.35rem 1.5rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.product-card__name {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 400;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.product-card__meta {
+  font-size: 0.82rem;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--sc-muted);
+  font-weight: 500;
+}
+
+.product-card__price {
+  margin-top: 0.35rem;
+  font-family: var(--font-nav);
+  font-size: 0.88rem;
+  letter-spacing: normal;
+  color: var(--sc-teal-deep);
+  font-weight: 700;
+}
+
+.product-card__link {
+  color: inherit;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  text-decoration: none;
+}
+
+.product-card__chat {
+  border-top: 1px solid var(--line);
+  color: var(--accent-strong);
+  display: block;
+  font-family: var(--font-nav);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  padding: 0.75rem 1rem;
+  text-align: center;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: background 200ms ease;
+}
+
+.product-card__chat:hover {
+  background: rgba(138, 120, 98, 0.1);
+}
+
+/* Legacy tile upgrade */
+.product-tile {
+  border: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  background: var(--bg-elevated);
+}
+
+.product-tile .thumb {
+  aspect-ratio: 4 / 5;
+}
+
+.product-tile .body {
+  padding: 1.25rem 1.35rem 1.5rem;
+}
+
+.product-tile .name {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.25rem;
+}
+
+/* ——— Editorial strip ——— */
+.home-editorial {
+  border-top: 1px solid var(--line);
+  background:
+    linear-gradient(135deg, rgba(184, 149, 106, 0.06), transparent 55%),
+    var(--bg);
+}
+
+.editorial-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(2rem, 5vw, 4rem);
+  align-items: center;
+}
+
+.editorial-split__visual {
+  aspect-ratio: 4 / 5;
+  background: url('/brand/hero-marble.jpg') center / cover no-repeat;
+  border: 1px solid var(--line);
+}
+
+.editorial-split__copy h2 {
+  margin-bottom: 1.5rem;
+}
+
+/* ——— Forms ——— */
+.form label,
+.fw-form label {
+  font-family: var(--font-nav);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  gap: 0.55rem;
+}
+
+.form input,
+.form select,
+.form textarea,
+.home-search-form input,
+.fw-form label input,
+.fw-form label select,
+.fw-form label textarea {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.85rem 0;
+  font-size: 1rem;
+  color: var(--ink);
+  transition: border-color 220ms ease;
+}
+
+.form input:focus,
+.form select:focus,
+.form textarea:focus,
+.home-search-form input:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+
+.form input::placeholder,
+.form textarea::placeholder,
+.home-search-form input::placeholder {
+  color: rgba(156, 143, 130, 0.55);
+}
+
+.home-search-form {
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.35rem 0.35rem 1rem;
+  gap: 0;
+}
+
+.home-search-form input {
+  border-bottom: none;
+}
+
+.home-search-form .btn {
+  flex-shrink: 0;
+}
+
+.designer-page .lead {
+  max-width: 42ch;
+}
+
+.designer-grid {
+  max-width: 640px;
+  padding: 2rem;
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+}
+
+.designer-form label input[type='file'] {
+  padding: 1rem;
+  border: 1px dashed var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.designer-form label input[type='file']:hover {
+  border-color: var(--line-strong);
+}
+
+/* ——— Footer ——— */
+.site-footer.public-footer {
+  padding: clamp(3rem, 6vw, 5rem) var(--section-x);
+  margin-top: 0;
+  border-top: 1px solid var(--line);
+  background: #060605;
+}
+
+.public-footer .footer-grid {
+  max-width: 1280px;
+  margin-inline: auto;
+}
+
+.footer-tag {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 300;
+  color: var(--muted);
+  max-width: 22ch;
+}
+
+/* ——— FABs ——— */
+.assistant-fab {
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  background: linear-gradient(135deg, var(--sc-teal-deep, #1e4a40), var(--sc-teal, #2a6b5c));
+  color: #fff8ef;
+}
+
+.whatsapp-fab {
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 999px;
+}
+
+.catalog-page .form,
+.catalog-filters {
+  margin-bottom: 2.5rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.catalog-filters .form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem 2rem;
+  max-width: none;
+}
+
+.catalog-filters label {
+  min-width: 140px;
+  flex: 1;
+}
+
+.notice {
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+@media (max-width: 900px) {
+  .editorial-split {
+    grid-template-columns: 1fr;
+  }
+
+  .editorial-split__visual {
+    aspect-ratio: 16 / 10;
+    max-height: 320px;
+  }
+
+  .public-header {
+    grid-template-columns: 1fr auto;
+  }
+
+  .nav-desktop {
+    display: none;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 720px) {
+  .hero.hero-home {
+    min-height: 78vh;
+  }
+
+  .hero h1 {
+    font-size: clamp(2rem, 10vw, 2.75rem);
+  }
+
+  .cta-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cta-row .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

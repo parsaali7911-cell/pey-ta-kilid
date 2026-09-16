@@ -1,0 +1,57 @@
+/* Peytakilid design tokens */
+
+:root {
+  --sc-bg: #f3ede3;
+  --sc-bg-elevated: #fffdf9;
+  --sc-surface: #fffdf9;
+  --sc-surface-2: #f8f3ea;
+  --sc-ink: #12100e;
+  --sc-muted: #4a433c;
+  --sc-accent-gold: #c67b2a;
+  --sc-accent-gold-soft: #f0dfc8;
+  --sc-teal: #2a6b5c;
+  --sc-teal-deep: #1e4a40;
+  --sc-line: rgba(26, 23, 20, 0.1);
+  --sc-line-strong: rgba(42, 107, 92, 0.35);
+  --sc-shadow: 0 14px 40px rgba(26, 23, 20, 0.08);
+  --sc-radius: 14px;
+  --sc-radius-sm: 10px;
+  --sc-section-x: clamp(1.25rem, 5vw, 5rem);
+  --sc-danger: #9b3b3b;
+  --sc-success: #1e4a40;
+  --sc-font-display: 'Instrument Serif', Georgia, serif;
+  --sc-font-nav: 'Space Grotesk', system-ui, sans-serif;
+  --sc-font-sans: 'Inter', system-ui, sans-serif;
+  --sc-font-rtl: 'Estedad', 'Vazirmatn', sans-serif;
+
+  /* Legacy aliases used across globals / luxury / components */
+  --bg: var(--sc-bg);
+  --bg-elevated: var(--sc-bg-elevated);
+  --surface: var(--sc-surface);
+  --ink: var(--sc-ink);
+  --muted: var(--sc-muted);
+  --accent: var(--sc-accent-gold);
+  --accent-strong: var(--sc-teal-deep);
+  --line: var(--sc-line);
+  --line-strong: var(--sc-line-strong);
+  --radius: var(--sc-radius);
+  --section-x: var(--sc-section-x);
+  --shadow-soft: var(--sc-shadow);
+  --danger: var(--sc-danger);
+  --font-display: var(--sc-font-display);
+  --font-nav: var(--sc-font-nav);
+  --font-sans: var(--sc-font-sans);
+  --font-rtl: var(--sc-font-rtl);
+}
+
+body.rtl {
+  --font-display: var(--sc-font-rtl);
+  --font-nav: var(--sc-font-rtl);
+}
+
+html,
+body {
+  background: var(--sc-bg);
+  color: var(--sc-ink);
+  -webkit-font-smoothing: antialiased;
+}

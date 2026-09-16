@@ -1,0 +1,15 @@
+node_modules
+dist
+.next
+.env
+.env.local
+*.log
+coverage
+uploads
+.DS_Store
+apps/api/prisma/*.db
+apps/api/prisma/*.db-journal
+peytakilid*.bundle
+peytakilid*.tar.gz
+*.bundle
+/tmp/
