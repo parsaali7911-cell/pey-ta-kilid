@@ -15,12 +15,27 @@ export function PublicHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      document.body.style.removeProperty('overflow');
+      return;
+    }
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.removeProperty('overflow');
+    };
   }, [open]);
 
   const primary = [

@@ -307,7 +307,6 @@ const FA: Dict = {
   pro_step_otp: 'تأیید موبایل',
   pro_step_photo: 'عکس و تکمیل',
   pro_display_name: 'نام نمایشی',
-  pro_specialty: 'تخصص',
   pro_city: 'شهر',
   pro_mobile: 'موبایل',
   pro_national_id: 'کد ملی',

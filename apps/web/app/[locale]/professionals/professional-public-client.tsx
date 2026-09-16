@@ -121,23 +121,19 @@ export default function ProfessionalPublicClient({
 
   return (
     <div className="panel-workspace" style={{ padding: '0.5rem 0 2rem' }}>
-      <header style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <header className="pro-public-header">
         {p?.avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={p.avatarUrl}
-            alt={p.displayName}
-            style={{ width: 96, height: 96, borderRadius: 16, objectFit: 'cover' }}
-          />
+          <img className="pro-public-avatar" src={p.avatarUrl} alt={p.displayName} />
         ) : (
-          <div style={{ width: 96, height: 96, borderRadius: 16, background: '#eee' }} />
+          <div className="pro-public-avatar" aria-hidden />
         )}
         <div style={{ flex: 1, minWidth: 220 }}>
           <h1 style={{ margin: 0 }}>{p?.displayName || data.name}</h1>
           <p className="panel-muted" style={{ margin: '0.35rem 0' }}>
             {[data.specialtyLabel, city].filter(Boolean).join(' · ')}
           </p>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div className="pro-public-badges">
             <span className="mp-btn" style={{ pointerEvents: 'none' }}>
               {copy.pro_score_label || 'رتبه پروفایل'}: {p?.profileScore ?? 0}/100
             </span>
@@ -176,13 +172,7 @@ export default function ProfessionalPublicClient({
       {p?.portfolio?.length ? (
         <section style={{ marginTop: '1.5rem' }}>
           <h2>{copy.pro_portfolio || 'نمونه کارها'}</h2>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))',
-              gap: '0.6rem',
-            }}
-          >
+          <div className="pro-portfolio-grid">
             {p.portfolio.map((item) => (
               <figure key={item.id} style={{ margin: 0 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -397,17 +387,9 @@ export function ProfessionalOnboardWizard({
           {score}/100
         </strong>
       </p>
-      <ol style={{ display: 'flex', gap: '0.5rem', listStyle: 'none', padding: 0, flexWrap: 'wrap' }}>
+      <ol className="pro-onboard-steps">
         {steps.map((label, i) => (
-          <li
-            key={label}
-            style={{
-              padding: '0.3rem 0.7rem',
-              borderRadius: 999,
-              border: '1px solid #ddd',
-              background: step === i + 1 ? 'rgba(40,140,90,0.12)' : 'transparent',
-            }}
-          >
+          <li key={label} className={step === i + 1 ? 'is-active' : undefined}>
             {i + 1}. {label}
           </li>
         ))}

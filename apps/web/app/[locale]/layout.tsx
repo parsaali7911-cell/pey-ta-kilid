@@ -1,7 +1,29 @@
 import type { ReactNode } from 'react';
+import type { Metadata, Viewport } from 'next';
 import { notFound } from 'next/navigation';
 import { PublicShell } from '@/components/PublicShell';
 import { isLocale, rtl, t, type Locale } from '@/lib/i18n-public';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f7f3ec' },
+    { media: '(prefers-color-scheme: dark)', color: '#1e4a40' },
+  ],
+};
+
+export const metadata: Metadata = {
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'پی تا کلید',
+  },
+  formatDetection: {
+    telephone: false,
+  },
+};
 
 export default async function LocaleLayout({
   children,
