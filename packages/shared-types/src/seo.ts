@@ -192,10 +192,10 @@ export function assertNoPrivateSeoLeak(payload: unknown): void {
       throw new Error(`SEO payload leak detected: ${key}`);
     }
   }
-  // Block STONCITY/stone-specific leakage in SEO payloads
+  // Reject foreign stone-marketplace SEO tokens if they leak into payloads
   for (const banned of ['FactoryProduct', 'MineBlock', 'stoneType', 'stoncity', '/stones/'] as const) {
     if (json.includes(banned)) {
-      throw new Error(`SEO payload contains banned STONCITY/stone token: ${banned}`);
+      throw new Error(`SEO payload contains banned foreign marketplace token: ${banned}`);
     }
   }
 }
