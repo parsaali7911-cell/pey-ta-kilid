@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   apiAuthed,
@@ -18,7 +18,6 @@ type PendingListing = {
   slug: string;
   title: string;
   status: string;
-  submittedAt?: string | null;
   organization?: { name?: string; slug?: string } | null;
   category?: { nameEn?: string; nameFa?: string; slug?: string } | null;
   facility?: { name?: string; address?: { city?: string } } | null;
@@ -31,20 +30,16 @@ type Lead = {
   specialtyHints: string[];
   city?: string | null;
   status: string;
-  createdAt: number;
-  notes?: string | null;
 };
 
 type SubmittedPayment = {
   id: string;
   amount: number;
   currency: string;
-  status: string;
   method?: string;
   order?: {
     id: string;
     publicId?: string;
-    totalDisplayPrice?: number;
     buyer?: { name?: string };
     seller?: { name?: string };
   };
@@ -73,19 +68,15 @@ type EscalatedChat = {
   preview?: string | null;
 };
 
-type ChatMsg = {
-  id: string;
-  senderRole: string;
-  body: string;
-  createdAt: string;
-};
-
+type ChatMsg = { id: string; senderRole: string; body: string; createdAt: string };
 type ChatThreadView = {
   publicId: string;
   escalationStatus?: string;
   listing: { title: string; sellerName?: string | null };
   messages: ChatMsg[];
 };
+
+type AdminTab = 'home' | 'inbox' | 'listings' | 'payments' | 'leads' | 'catalog';
 
 function flattenTaxon(nodes: TaxonNode[], depth = 0, acc: Array<TaxonNode & { depth: number }> = []) {
   for (const n of nodes || []) {
@@ -95,9 +86,16 @@ function flattenTaxon(nodes: TaxonNode[], depth = 0, acc: Array<TaxonNode & { de
   return acc;
 }
 
+function reasonLabel(reason: string | null | undefined, copy: Record<string, string>) {
+  if (reason === 'buyer_requested_admin') return copy.admin_chat_reason_admin || reason;
+  if (reason === 'assistant_cannot_answer') return copy.admin_chat_reason_bot || reason;
+  return reason || '—';
+}
+
 export default function AdminClient({ locale, copy }: { locale: Locale; copy: Record<string, string> }) {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [tab, setTab] = useState<AdminTab>('home');
   const [pending, setPending] = useState<PendingListing[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [payments, setPayments] = useState<SubmittedPayment[]>([]);
@@ -112,6 +110,15 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState('');
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [seenChatIds, setSeenChatIds] = useState<string[]>([]);
+  const notifyRef = useRef<HTMLDivElement | null>(null);
+  const booted = useRef(false);
+
+  const unreadChats = useMemo(
+    () => chatThreads.filter((t) => !seenChatIds.includes(t.publicId)),
+    [chatThreads, seenChatIds],
+  );
 
   const load = useCallback(async () => {
     if (!getAccessToken()) {
@@ -129,14 +136,20 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
       apiAuthed<PendingListing[]>('/admin/listings/pending').catch(() => []),
       apiAuthed<Lead[]>('/professionals/leads').catch(() => []),
       apiAuthed<SubmittedPayment[]>('/admin/payments/submitted').catch(() => []),
-      fetch(apiUrl('/categories?locale=' + locale)).then((r) => r.json()),
+      fetch(apiUrl('/categories?locale=' + locale)).then((r) => r.json()).catch(() => []),
       apiAuthed<EscalatedChat[]>('/chat/admin/threads?status=OPEN').catch(() => []),
     ]);
+    const nextChats = Array.isArray(chats) ? chats : [];
     setPending(list || []);
     setLeads(leadList || []);
     setPayments(payList || []);
     setCategories(Array.isArray(cats) ? cats : []);
-    setChatThreads(Array.isArray(chats) ? chats : []);
+    setChatThreads(nextChats);
+
+    if (!booted.current) {
+      booted.current = true;
+      if (nextChats.length > 0) setTab('inbox');
+    }
   }, [copy.admin_forbidden, locale, router]);
 
   useEffect(() => {
@@ -145,6 +158,14 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
       router.replace(`/${locale}/login?next=/${locale}/admin`);
     });
   }, [load, locale, router]);
+
+  // Soft poll so escalations show up as notifications without refresh.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void load().catch(() => undefined);
+    }, 20000);
+    return () => window.clearInterval(id);
+  }, [load]);
 
   useEffect(() => {
     if (!taxCatId) {
@@ -156,6 +177,14 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
       .then((rows) => setTaxAttrs(Array.isArray(rows) ? rows : []))
       .catch(() => setTaxAttrs([]));
   }, [taxCatId]);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (!notifyRef.current?.contains(e.target as Node)) setNotifyOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
 
   async function confirmPay(id: string) {
     setBusyId(id);
@@ -194,8 +223,11 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
   }
 
   async function openChat(publicId: string) {
+    setTab('inbox');
+    setNotifyOpen(false);
     setActiveChatId(publicId);
     setChatReply('');
+    setSeenChatIds((prev) => (prev.includes(publicId) ? prev : [...prev, publicId]));
     setBusyId(publicId);
     try {
       const t = await apiAuthed<ChatThreadView>(`/chat/threads/${publicId}`);
@@ -231,8 +263,10 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
     try {
       await apiAuthed(`/chat/threads/${publicId}/resolve`, { method: 'POST', json: {} });
       setMsg(copy.admin_chat_resolved);
-      if (activeChatId === publicId) setActiveChat(null);
-      setActiveChatId('');
+      if (activeChatId === publicId) {
+        setActiveChat(null);
+        setActiveChatId('');
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
@@ -241,18 +275,77 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
     }
   }
 
+  function markAllSeen() {
+    setSeenChatIds(chatThreads.map((t) => t.publicId));
+  }
+
   if (!user) return <p className="pk-notice">{copy.panel_loading}</p>;
 
+  const tabBtn = (id: AdminTab, label: string, count?: number) => (
+    <button type="button" className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}>
+      {label}
+      {count != null && count > 0 ? <span className="panel-badge panel-badge--danger">{count}</span> : null}
+    </button>
+  );
+
   return (
-    <div className="panel-workspace">
+    <div className="panel-workspace admin-workspace">
       <header className="panel-header">
         <div>
           <strong>{copy.admin_panel_title}</strong>
           <div className="panel-header__meta">
-            {user.email} · {user.platformRole}
+            <span>
+              {user.email} · {user.platformRole}
+            </span>
+            <div className="admin-notify" ref={notifyRef}>
+              <button
+                type="button"
+                className="admin-notify__bell"
+                aria-label={copy.admin_notify_title}
+                onClick={() => {
+                  setNotifyOpen((o) => !o);
+                  if (!notifyOpen) markAllSeen();
+                }}
+              >
+                🔔
+                {unreadChats.length > 0 ? (
+                  <span className="admin-notify__badge">{unreadChats.length > 9 ? '9+' : unreadChats.length}</span>
+                ) : null}
+              </button>
+              {notifyOpen ? (
+                <div className="admin-notify__panel" role="dialog">
+                  <div className="admin-notify__head">
+                    <strong>{copy.admin_notify_title}</strong>
+                    <button type="button" className="btn ghost" onClick={() => setTab('inbox')}>
+                      {copy.admin_tab_inbox}
+                    </button>
+                  </div>
+                  {!chatThreads.length ? (
+                    <p className="admin-notify__empty">{copy.admin_notify_empty}</p>
+                  ) : (
+                    <ul className="admin-notify__list">
+                      {chatThreads.slice(0, 8).map((t) => (
+                        <li key={t.publicId} className={seenChatIds.includes(t.publicId) ? '' : 'unread'}>
+                          <button type="button" className="admin-notify__item" onClick={() => void openChat(t.publicId)}>
+                            <span className="admin-notify__item-title">{t.listing.title}</span>
+                            <span className="admin-notify__item-body">
+                              {t.guestName || copy.chat_you} · {reasonLabel(t.escalationReason, copy)}
+                            </span>
+                            {t.preview ? <span className="admin-notify__item-body">{t.preview}</span> : null}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
         <div className="panel-header__actions">
+          <button type="button" className="btn ghost" onClick={() => void load()}>
+            {copy.admin_refresh}
+          </button>
           <a className="btn ghost" href={`/${locale}/seller`}>
             {copy.nav_sellers}
           </a>
@@ -263,222 +356,247 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
       </header>
 
       <div className="panel-body">
+        <nav className="panel-tabs" aria-label="admin">
+          {tabBtn('home', copy.admin_tab_home)}
+          {tabBtn('inbox', copy.admin_tab_inbox, chatThreads.length)}
+          {tabBtn('listings', copy.admin_tab_listings, pending.length)}
+          {tabBtn('payments', copy.admin_tab_payments, payments.length)}
+          {tabBtn('leads', copy.admin_tab_leads, leads.length)}
+          {tabBtn('catalog', copy.admin_tab_catalog)}
+        </nav>
+
         {error ? <p className="panel-err">{error}</p> : null}
         {msg ? <p className="panel-ok">{msg}</p> : null}
 
-        <section className="panel-card">
-          <h2>{copy.admin_market_control}</h2>
-          <p className="panel-muted">{copy.admin_market_lead}</p>
-        </section>
-
-        <section className="panel-card">
-          <h2>{copy.admin_taxonomy}</h2>
-          <p className="panel-muted">{copy.admin_taxonomy_lead}</p>
-          <label>
-            {copy.admin_taxonomy_pick}
-            <select value={taxCatId} onChange={(e) => setTaxCatId(e.target.value)}>
-              <option value="">{copy.seller_pick_category}</option>
-              {flattenTaxon(categories).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {'—'.repeat(c.depth)} {locale === 'fa' ? c.nameFa || c.nameEn || c.name : c.nameEn || c.nameFa || c.name} (
-                  {c.slug})
-                </option>
-              ))}
-            </select>
-          </label>
-          {taxCatId ? (
-            <ul className="panel-list">
-              {taxAttrs.map((a) => (
-                <li key={a.id}>
-                  <strong>{a.code}</strong> · {a.dataType}
-                  {a.required ? ' · required' : ''}
-                  {a.unit ? ` · ${a.unit}` : ''}
-                  {a.nameEn ? ` · ${a.nameEn}` : ''}
-                </li>
-              ))}
-              {!taxAttrs.length ? <li className="panel-muted">{copy.admin_taxonomy_no_attrs}</li> : null}
-            </ul>
-          ) : (
-            <ul className="panel-list">
-              {flattenTaxon(categories)
-                .slice(0, 40)
-                .map((c) => (
-                  <li key={c.id}>
-                    {'—'.repeat(c.depth)}{' '}
-                    {locale === 'fa' ? c.nameFa || c.nameEn || c.name : c.nameEn || c.nameFa || c.name} · {c.slug}
-                  </li>
-                ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="panel-card">
-          <h2>
-            {copy.admin_pending} ({pending.length})
-          </h2>
-          {!pending.length ? <p className="panel-muted">{copy.admin_no_pending}</p> : null}
-          <div className="panel-stack">
-            {pending.map((l) => (
-              <article key={l.id} className="panel-item">
-                <h3>{l.title}</h3>
-                <p className="panel-muted">
-                  {l.organization?.name} · {l.category?.nameFa || l.category?.nameEn || l.category?.slug} ·{' '}
-                  {l.facility?.address?.city || '—'} · {l.slug}
-                </p>
-                {l.price?.displayPrice != null ? (
-                  <p>
-                    {copy.mp_from} {l.price.displayPrice} {l.price.currency}
+        {tab === 'home' ? (
+          <section className="panel-card">
+            <h2>{copy.admin_home_title}</h2>
+            <p className="panel-muted">{copy.admin_home_lead}</p>
+            <div className="admin-stat-grid">
+              <button type="button" className="admin-stat" onClick={() => setTab('inbox')}>
+                <strong>{chatThreads.length}</strong>
+                <span>{copy.admin_tab_inbox}</span>
+              </button>
+              <button type="button" className="admin-stat" onClick={() => setTab('listings')}>
+                <strong>{pending.length}</strong>
+                <span>{copy.admin_tab_listings}</span>
+              </button>
+              <button type="button" className="admin-stat" onClick={() => setTab('payments')}>
+                <strong>{payments.length}</strong>
+                <span>{copy.admin_tab_payments}</span>
+              </button>
+              <button type="button" className="admin-stat" onClick={() => setTab('leads')}>
+                <strong>{leads.length}</strong>
+                <span>{copy.admin_tab_leads}</span>
+              </button>
+            </div>
+            {chatThreads[0] ? (
+              <div className="admin-home-alert">
+                <div>
+                  <strong>{copy.admin_notify_new}</strong>
+                  <p className="panel-muted">
+                    {chatThreads[0].listing.title} — {chatThreads[0].guestName || 'buyer'}
                   </p>
-                ) : null}
-                <label>
-                  {copy.admin_reject_reason}
-                  <input
-                    value={rejectReasons[l.id] || ''}
-                    onChange={(e) => setRejectReasons((s) => ({ ...s, [l.id]: e.target.value }))}
-                  />
-                </label>
-                <div className="designer-actions">
-                  <button
-                    type="button"
-                    className="mp-btn mp-btn--primary"
-                    disabled={busyId === l.id}
-                    onClick={() => void act(l.id, 'approve')}
-                  >
-                    {copy.admin_approve}
-                  </button>
-                  <button
-                    type="button"
-                    className="mp-btn"
-                    disabled={busyId === l.id}
-                    onClick={() => void act(l.id, 'publish')}
-                  >
-                    {copy.admin_publish}
-                  </button>
-                  <button
-                    type="button"
-                    className="mp-btn"
-                    disabled={busyId === l.id}
-                    onClick={() => void act(l.id, 'reject')}
-                  >
-                    {copy.admin_reject}
-                  </button>
                 </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel-card">
-          <h2>
-            {copy.admin_payments} ({payments.length})
-          </h2>
-          {!payments.length ? <p className="panel-muted">{copy.admin_no_payments}</p> : null}
-          <div className="panel-stack">
-            {payments.map((p) => (
-              <article key={p.id} className="panel-item">
-                <h3>
-                  {p.amount} {p.currency} · {p.method || 'BANK_TRANSFER'}
-                </h3>
-                <p className="panel-muted">
-                  {p.order?.buyer?.name || 'Buyer'} → {p.order?.seller?.name || 'Seller'} · order{' '}
-                  {p.order?.publicId || p.order?.id?.slice(-6)}
-                </p>
-                <button
-                  type="button"
-                  className="mp-btn mp-btn--primary"
-                  disabled={busyId === p.id}
-                  onClick={() => void confirmPay(p.id)}
-                >
-                  {copy.admin_confirm_payment}
+                <button type="button" className="mp-btn mp-btn--primary" onClick={() => void openChat(chatThreads[0].publicId)}>
+                  {copy.chat_open}
                 </button>
-              </article>
-            ))}
-          </div>
-        </section>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
-        <section className="panel-card">
-          <h2>
-            {copy.admin_chat_inbox} ({chatThreads.length})
-          </h2>
-          {!chatThreads.length ? <p className="panel-muted">{copy.admin_chat_empty}</p> : null}
-          <div className="panel-stack">
-            {chatThreads.map((t) => (
-              <article key={t.publicId} className="panel-item">
-                <h3>{t.listing.title}</h3>
-                <p className="panel-muted">
-                  {t.listing.sellerName || '—'} · {t.guestName || 'buyer'} · {t.escalationReason || '—'} ·{' '}
-                  {t.messageCount} msgs
-                </p>
-                {t.preview ? <p>{t.preview}</p> : null}
-                <div className="designer-actions">
+        {tab === 'inbox' ? (
+          <section className="panel-card admin-inbox">
+            <h2>
+              {copy.admin_chat_inbox}
+              {chatThreads.length ? <span className="panel-badge panel-badge--danger">{chatThreads.length}</span> : null}
+            </h2>
+            {!chatThreads.length ? <p className="panel-muted">{copy.admin_chat_empty}</p> : null}
+            <div className="admin-inbox__layout">
+              <div className="admin-inbox__list">
+                {chatThreads.map((t) => (
                   <button
+                    key={t.publicId}
                     type="button"
-                    className="mp-btn mp-btn--primary"
-                    disabled={busyId === t.publicId}
+                    className={`admin-inbox__row${activeChatId === t.publicId ? ' is-active' : ''}`}
                     onClick={() => void openChat(t.publicId)}
                   >
-                    {copy.chat_open}
+                    <strong>{t.listing.title}</strong>
+                    <span>
+                      {t.guestName || 'buyer'} · {reasonLabel(t.escalationReason, copy)}
+                    </span>
+                    {t.preview ? <em>{t.preview}</em> : null}
                   </button>
-                  <button
-                    type="button"
-                    className="mp-btn"
-                    disabled={busyId === t.publicId}
-                    onClick={() => void resolveChat(t.publicId)}
-                  >
-                    {copy.admin_chat_resolve}
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-          {activeChat ? (
-            <div className="pk-chat__panel" style={{ marginTop: '1rem' }}>
-              <div className="pk-chat__head">
-                <strong>{activeChat.listing.title}</strong>
-                <span className="pk-chat__sub">{activeChat.listing.sellerName || ''}</span>
-              </div>
-              <div className="pk-chat__msgs">
-                {activeChat.messages.map((m) => (
-                  <div key={m.id} className={`pk-chat__bubble pk-chat__bubble--${m.senderRole.toLowerCase()}`}>
-                    <span className="pk-chat__role">{m.senderRole}</span>
-                    <p>{m.body}</p>
-                  </div>
                 ))}
               </div>
-              <form
-                className="pk-chat__form"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void sendAdminChat();
-                }}
-              >
-                <textarea
-                  value={chatReply}
-                  onChange={(e) => setChatReply(e.target.value)}
-                  rows={2}
-                  placeholder={copy.admin_chat_reply}
-                />
-                <button type="submit" className="mp-btn mp-btn--primary" disabled={!chatReply.trim() || !!busyId}>
-                  {copy.chat_send}
-                </button>
-              </form>
+              <div className="admin-inbox__thread">
+                {activeChat ? (
+                  <>
+                    <div className="admin-inbox__thread-head">
+                      <div>
+                        <strong>{activeChat.listing.title}</strong>
+                        <span className="panel-muted">{activeChat.listing.sellerName || ''}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="mp-btn"
+                        disabled={busyId === activeChat.publicId}
+                        onClick={() => void resolveChat(activeChat.publicId)}
+                      >
+                        {copy.admin_chat_resolve}
+                      </button>
+                    </div>
+                    <div className="pk-chat__msgs">
+                      {activeChat.messages.map((m) => (
+                        <div key={m.id} className={`pk-chat__bubble pk-chat__bubble--${m.senderRole.toLowerCase()}`}>
+                          <span className="pk-chat__role">{m.senderRole}</span>
+                          <p>{m.body}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <form
+                      className="pk-chat__form"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void sendAdminChat();
+                      }}
+                    >
+                      <textarea
+                        value={chatReply}
+                        onChange={(e) => setChatReply(e.target.value)}
+                        rows={2}
+                        placeholder={copy.admin_chat_reply}
+                      />
+                      <button type="submit" className="mp-btn mp-btn--primary" disabled={!chatReply.trim() || !!busyId}>
+                        {copy.chat_send}
+                      </button>
+                    </form>
+                  </>
+                ) : (
+                  <p className="panel-muted">{copy.admin_chat_pick}</p>
+                )}
+              </div>
             </div>
-          ) : null}
-        </section>
+          </section>
+        ) : null}
 
-        <section className="panel-card">
-          <h2>
-            {copy.admin_leads} ({leads.length})
-          </h2>
-          <ul className="panel-list">
-            {leads.map((lead) => (
-              <li key={lead.publicId}>
-                <strong>{lead.contactName}</strong> · {lead.specialtyHints.join(', ') || '—'} · {lead.city || '—'} ·{' '}
-                {lead.status}
-              </li>
-            ))}
-          </ul>
-        </section>
+        {tab === 'listings' ? (
+          <section className="panel-card">
+            <h2>
+              {copy.admin_pending} ({pending.length})
+            </h2>
+            {!pending.length ? <p className="panel-muted">{copy.admin_no_pending}</p> : null}
+            <div className="panel-stack">
+              {pending.map((l) => (
+                <article key={l.id} className="panel-item">
+                  <h3>{l.title}</h3>
+                  <p className="panel-muted">
+                    {l.organization?.name} · {l.category?.nameFa || l.category?.nameEn || l.category?.slug} ·{' '}
+                    {l.facility?.address?.city || '—'}
+                  </p>
+                  {l.price?.displayPrice != null ? (
+                    <p>
+                      {copy.mp_from} {l.price.displayPrice} {l.price.currency}
+                    </p>
+                  ) : null}
+                  <label>
+                    {copy.admin_reject_reason}
+                    <input
+                      value={rejectReasons[l.id] || ''}
+                      onChange={(e) => setRejectReasons((s) => ({ ...s, [l.id]: e.target.value }))}
+                    />
+                  </label>
+                  <div className="designer-actions">
+                    <button type="button" className="mp-btn mp-btn--primary" disabled={busyId === l.id} onClick={() => void act(l.id, 'approve')}>
+                      {copy.admin_approve}
+                    </button>
+                    <button type="button" className="mp-btn" disabled={busyId === l.id} onClick={() => void act(l.id, 'publish')}>
+                      {copy.admin_publish}
+                    </button>
+                    <button type="button" className="mp-btn" disabled={busyId === l.id} onClick={() => void act(l.id, 'reject')}>
+                      {copy.admin_reject}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {tab === 'payments' ? (
+          <section className="panel-card">
+            <h2>
+              {copy.admin_payments} ({payments.length})
+            </h2>
+            {!payments.length ? <p className="panel-muted">{copy.admin_no_payments}</p> : null}
+            <div className="panel-stack">
+              {payments.map((p) => (
+                <article key={p.id} className="panel-item">
+                  <h3>
+                    {p.amount} {p.currency} · {p.method || 'BANK_TRANSFER'}
+                  </h3>
+                  <p className="panel-muted">
+                    {p.order?.buyer?.name || 'Buyer'} → {p.order?.seller?.name || 'Seller'} ·{' '}
+                    {p.order?.publicId || p.order?.id?.slice(-6)}
+                  </p>
+                  <button type="button" className="mp-btn mp-btn--primary" disabled={busyId === p.id} onClick={() => void confirmPay(p.id)}>
+                    {copy.admin_confirm_payment}
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {tab === 'leads' ? (
+          <section className="panel-card">
+            <h2>
+              {copy.admin_leads} ({leads.length})
+            </h2>
+            {!leads.length ? <p className="panel-muted">{copy.admin_leads_empty}</p> : null}
+            <ul className="panel-list">
+              {leads.map((lead) => (
+                <li key={lead.publicId}>
+                  <strong>{lead.contactName}</strong> · {lead.specialtyHints.join(', ') || '—'} · {lead.city || '—'} ·{' '}
+                  {lead.status}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {tab === 'catalog' ? (
+          <section className="panel-card">
+            <h2>{copy.admin_taxonomy}</h2>
+            <p className="panel-muted">{copy.admin_taxonomy_lead}</p>
+            <label>
+              {copy.admin_taxonomy_pick}
+              <select value={taxCatId} onChange={(e) => setTaxCatId(e.target.value)}>
+                <option value="">{copy.seller_pick_category}</option>
+                {flattenTaxon(categories).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {'—'.repeat(c.depth)} {locale === 'fa' ? c.nameFa || c.nameEn || c.name : c.nameEn || c.nameFa || c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {taxCatId ? (
+              <ul className="panel-list">
+                {taxAttrs.map((a) => (
+                  <li key={a.id}>
+                    <strong>{a.code}</strong> · {a.dataType}
+                    {a.required ? ' · required' : ''}
+                    {a.unit ? ` · ${a.unit}` : ''}
+                  </li>
+                ))}
+                {!taxAttrs.length ? <li className="panel-muted">{copy.admin_taxonomy_no_attrs}</li> : null}
+              </ul>
+            ) : (
+              <p className="panel-muted">{copy.admin_taxonomy_pick}</p>
+            )}
+          </section>
+        ) : null}
       </div>
     </div>
   );
