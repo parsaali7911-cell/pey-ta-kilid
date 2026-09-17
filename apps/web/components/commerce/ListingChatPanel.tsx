@@ -7,7 +7,7 @@ import type { Locale } from '@/lib/i18n-public';
 
 type ChatMessage = {
   id: string;
-  senderRole: 'BUYER' | 'SELLER' | 'ASSISTANT' | 'SYSTEM';
+  senderRole: 'BUYER' | 'SELLER' | 'ASSISTANT' | 'ADMIN' | 'SYSTEM';
   body: string;
   createdAt: string;
 };
@@ -16,6 +16,7 @@ type ChatThread = {
   publicId: string;
   guestToken?: string | null;
   guestName?: string | null;
+  escalationStatus?: 'NONE' | 'OPEN' | 'RESOLVED';
   listing: { id: string; slug: string; title: string; sellerName?: string | null };
   messages: ChatMessage[];
 };
@@ -195,6 +196,7 @@ export function ListingChatPanel({
     if (role === 'BUYER') return copy.chat_you || 'شما';
     if (role === 'SELLER') return sellerName || copy.chat_seller || 'فروشنده';
     if (role === 'ASSISTANT') return copy.chat_assistant || 'دستیار کالا';
+    if (role === 'ADMIN') return copy.chat_admin || 'پشتیبانی سایت';
     return copy.chat_system || 'سیستم';
   };
 
@@ -211,6 +213,9 @@ export function ListingChatPanel({
             <span className="pk-chat__sub">
               {sellerName ? `${copy.chat_with_seller || 'با'} ${sellerName}` : copy.chat_title}
             </span>
+            {thread?.escalationStatus === 'OPEN' ? (
+              <span className="pk-chat__badge">{copy.chat_escalated_badge || 'متصل به پشتیبانی'}</span>
+            ) : null}
           </div>
 
           {!getAccessToken() ? (
@@ -260,7 +265,10 @@ export function ListingChatPanel({
             </button>
           </form>
           {error ? <p className="pk-chat__err">{error}</p> : null}
-          <p className="pk-chat__hint">{copy.chat_hint || 'دستیار فقط از اطلاعات همین آگهی جواب می‌دهد؛ فروشنده هم پاسخ می‌دهد.'}</p>
+          <p className="pk-chat__hint">
+            {copy.chat_hint ||
+              'اول دستیار از اطلاعات آگهی جواب می‌دهد؛ در صورت نیاز به ادمین سایت وصل می‌شود. فروشنده هم پاسخ می‌دهد.'}
+          </p>
         </div>
       )}
     </div>

@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 import { ListingChatService } from './listing-chat.service';
@@ -47,6 +47,17 @@ class SendChatDto {
   @IsString()
   @MaxLength(8)
   locale?: string;
+}
+
+class AdminSendChatDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  body!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  resolve?: boolean;
 }
 
 @Controller('chat')
@@ -121,5 +132,38 @@ export class ListingChatController {
     @Query('organizationId') organizationId: string,
   ) {
     return this.chat.listSellerThreads(req.user.userId, organizationId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('admin/threads')
+  adminInbox(
+    @Req() req: { user: { userId: string } },
+    @Query('status') status?: 'OPEN' | 'RESOLVED' | 'ALL',
+  ) {
+    return this.chat.listEscalatedThreads(req.user.userId, status || 'OPEN');
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('threads/:publicId/admin-messages')
+  sendAdmin(
+    @Req() req: { user: { userId: string } },
+    @Param('publicId') publicId: string,
+    @Body() dto: AdminSendChatDto,
+  ) {
+    return this.chat.appendAdminMessage({
+      threadPublicId: publicId,
+      userId: req.user.userId,
+      body: dto.body,
+      resolve: dto.resolve,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('threads/:publicId/resolve')
+  resolve(
+    @Req() req: { user: { userId: string } },
+    @Param('publicId') publicId: string,
+  ) {
+    return this.chat.resolveEscalation(req.user.userId, publicId);
   }
 }

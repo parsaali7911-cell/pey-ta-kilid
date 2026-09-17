@@ -245,7 +245,14 @@ enum ChatSenderRole {
   BUYER
   SELLER
   ASSISTANT
+  ADMIN
   SYSTEM
+}
+
+enum ChatEscalationStatus {
+  NONE
+  OPEN
+  RESOLVED
 }
 
 model User {
@@ -1377,18 +1384,21 @@ model ProjectRequirement {
 
 
 model ListingChatThread {
-  id                   String    @id @default(cuid())
-  publicId             String    @unique @default(cuid())
+  id                   String                @id @default(cuid())
+  publicId             String                @unique @default(cuid())
   listingId            String
   sellerOrganizationId String
   buyerUserId          String?
   guestName            String?
   guestPhone           String?
   /// Opaque token so guests can resume the same thread without login.
-  guestToken           String?   @unique
+  guestToken           String?               @unique
+  escalationStatus     ChatEscalationStatus  @default(NONE)
+  escalatedAt          DateTime?
+  escalationReason     String?
   lastMessageAt        DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 
   listing            Listing              @relation(fields: [listingId], references: [id], onDelete: Cascade)
   sellerOrganization Organization         @relation("ChatSellerOrg", fields: [sellerOrganizationId], references: [id], onDelete: Cascade)
@@ -1398,6 +1408,7 @@ model ListingChatThread {
   @@index([listingId, lastMessageAt])
   @@index([sellerOrganizationId, lastMessageAt])
   @@index([buyerUserId])
+  @@index([escalationStatus, escalatedAt])
 }
 
 model ListingChatMessage {

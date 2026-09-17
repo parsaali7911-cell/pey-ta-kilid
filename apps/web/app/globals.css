@@ -173,10 +173,13 @@
   padding: 0.85rem 1rem;
   background: linear-gradient(135deg, #2b2f33, #3d4450);
   color: #fff;
-  display: grid;
-  gap: 0.15rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
 }
-.pk-chat__sub { opacity: 0.8; font-size: 0.82rem; }
+.pk-chat__head strong { flex: 1 1 auto; }
+.pk-chat__sub { opacity: 0.8; font-size: 0.82rem; width: 100%; }
 .pk-chat__guest {
   display: grid;
   gap: 0.55rem;
@@ -218,6 +221,18 @@
 .pk-chat__bubble--buyer { border-color: rgba(47, 111, 191, 0.25); background: #f3f8ff; }
 .pk-chat__bubble--seller { border-color: rgba(240, 194, 26, 0.45); background: #fffbeb; }
 .pk-chat__bubble--assistant { border-color: rgba(42, 107, 92, 0.25); background: #f2faf7; }
+.pk-chat__bubble--admin { border-color: rgba(180, 60, 60, 0.35); background: #fff5f5; }
+.pk-chat__bubble--system { border-color: rgba(100, 100, 100, 0.2); background: #f7f7f7; color: #555; }
+.pk-chat__badge {
+  display: inline-block;
+  margin-inline-start: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #5c1a1a;
+  background: #ffd6d6;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+}
 .pk-chat__form {
   display: grid;
   gap: 0.5rem;

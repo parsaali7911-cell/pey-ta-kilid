@@ -4,11 +4,22 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ChatSenderRole, ListingStatus } from '@prisma/client';
+import {
+  ChatEscalationStatus,
+  ChatSenderRole,
+  ListingStatus,
+  PlatformRole,
+} from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { OrgAccessService } from '../common/org-access.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { buildListingAssistantReply } from './listing-chat.assistant';
+import { buildListingAssistantOutcome } from './listing-chat.assistant';
+
+const SUPPORT_ROLES: PlatformRole[] = [
+  PlatformRole.SUPER_ADMIN,
+  PlatformRole.ADMIN,
+  PlatformRole.SUPPORT,
+];
 
 @Injectable()
 export class ListingChatService {
@@ -64,8 +75,8 @@ export class ListingChatService {
           senderRole: ChatSenderRole.SYSTEM,
           body:
             (input.locale || 'fa') === 'en'
-              ? `Chat started about “${listing.title}”.`
-              : `گفتگو درباره «${listing.title}» شروع شد.`,
+              ? `Chat started about “${listing.title}”. Assistant replies first; site admin joins if needed.`
+              : `گفتگو درباره «${listing.title}» شروع شد. اول دستیار پاسخ می‌دهد؛ در صورت نیاز ادمین سایت وصل می‌شود.`,
         },
       });
     }
@@ -157,30 +168,56 @@ export class ListingChatService {
           }
         : null,
     };
-    const assistant = buildListingAssistantReply(
+    const outcome = buildListingAssistantOutcome(
       listingFacts,
       body,
       input.locale || 'fa',
     );
+
     let assistantMsg = null as typeof buyerMsg | null;
-    if (assistant) {
+    if (outcome.reply) {
       assistantMsg = await this.prisma.listingChatMessage.create({
         data: {
           threadId: thread.id,
           senderRole: ChatSenderRole.ASSISTANT,
-          body: assistant,
+          body: outcome.reply,
         },
       });
     }
 
-    await this.prisma.listingChatThread.update({
-      where: { id: thread.id },
-      data: { lastMessageAt: new Date() },
-    });
+    if (outcome.shouldEscalate && thread.escalationStatus !== ChatEscalationStatus.OPEN) {
+      await this.prisma.listingChatThread.update({
+        where: { id: thread.id },
+        data: {
+          escalationStatus: ChatEscalationStatus.OPEN,
+          escalatedAt: new Date(),
+          escalationReason: outcome.escalationReason,
+          lastMessageAt: new Date(),
+        },
+      });
+      if (!outcome.reply) {
+        const fa = (input.locale || 'fa') !== 'en';
+        assistantMsg = await this.prisma.listingChatMessage.create({
+          data: {
+            threadId: thread.id,
+            senderRole: ChatSenderRole.SYSTEM,
+            body: fa
+              ? 'گفتگو به پشتیبانی سایت ارجاع شد. ادمین به‌زودی پاسخ می‌دهد.'
+              : 'This chat was escalated to site support. An admin will reply soon.',
+          },
+        });
+      }
+    } else {
+      await this.prisma.listingChatThread.update({
+        where: { id: thread.id },
+        data: { lastMessageAt: new Date() },
+      });
+    }
 
     return {
       buyerMessage: this.serializeMessage(buyerMsg),
       assistantMessage: assistantMsg ? this.serializeMessage(assistantMsg) : null,
+      escalated: outcome.shouldEscalate || thread.escalationStatus === ChatEscalationStatus.OPEN,
       thread: await this.getThreadPublic(thread.publicId, input),
     };
   }
@@ -219,6 +256,62 @@ export class ListingChatService {
     };
   }
 
+  async appendAdminMessage(input: {
+    threadPublicId: string;
+    userId: string;
+    body: string;
+    resolve?: boolean;
+  }) {
+    await this.assertSupportUser(input.userId);
+    const body = (input.body || '').trim();
+    if (body.length < 1 || body.length > 2000) {
+      throw new BadRequestException('Message must be 1–2000 characters');
+    }
+    const thread = await this.prisma.listingChatThread.findUnique({
+      where: { publicId: input.threadPublicId },
+    });
+    if (!thread) throw new NotFoundException('Thread not found');
+
+    const msg = await this.prisma.listingChatMessage.create({
+      data: {
+        threadId: thread.id,
+        senderRole: ChatSenderRole.ADMIN,
+        senderUserId: input.userId,
+        body,
+      },
+    });
+
+    await this.prisma.listingChatThread.update({
+      where: { id: thread.id },
+      data: {
+        lastMessageAt: new Date(),
+        escalationStatus: input.resolve
+          ? ChatEscalationStatus.RESOLVED
+          : ChatEscalationStatus.OPEN,
+        escalatedAt: thread.escalatedAt || new Date(),
+        escalationReason: thread.escalationReason || 'admin_joined',
+      },
+    });
+
+    return {
+      message: this.serializeMessage(msg),
+      thread: await this.getThreadPublic(thread.publicId, { userId: input.userId }),
+    };
+  }
+
+  async resolveEscalation(userId: string, threadPublicId: string) {
+    await this.assertSupportUser(userId);
+    const thread = await this.prisma.listingChatThread.findUnique({
+      where: { publicId: threadPublicId },
+    });
+    if (!thread) throw new NotFoundException('Thread not found');
+    await this.prisma.listingChatThread.update({
+      where: { id: thread.id },
+      data: { escalationStatus: ChatEscalationStatus.RESOLVED },
+    });
+    return this.getThreadPublic(thread.publicId, { userId });
+  }
+
   async listSellerThreads(userId: string, organizationId: string) {
     await this.orgAccess.requireSellerMember(userId, organizationId);
     const threads = await this.prisma.listingChatThread.findMany({
@@ -238,7 +331,56 @@ export class ListingChatService {
       buyerUserId: t.buyerUserId,
       lastMessageAt: t.lastMessageAt,
       messageCount: t._count.messages,
+      escalationStatus: t.escalationStatus,
       preview: t.messages[0]?.body?.slice(0, 140) || null,
+    }));
+  }
+
+  async listEscalatedThreads(userId: string, status: 'OPEN' | 'RESOLVED' | 'ALL' = 'OPEN') {
+    await this.assertSupportUser(userId);
+    const where =
+      status === 'ALL'
+        ? { escalationStatus: { not: ChatEscalationStatus.NONE } }
+        : {
+            escalationStatus:
+              status === 'RESOLVED' ? ChatEscalationStatus.RESOLVED : ChatEscalationStatus.OPEN,
+          };
+
+    const threads = await this.prisma.listingChatThread.findMany({
+      where,
+      orderBy: [{ escalatedAt: 'desc' }, { lastMessageAt: 'desc' }],
+      take: 80,
+      include: {
+        listing: {
+          select: {
+            id: true,
+            slug: true,
+            title: true,
+            organization: { select: { name: true } },
+          },
+        },
+        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+        _count: { select: { messages: true } },
+      },
+    });
+
+    return threads.map((t) => ({
+      publicId: t.publicId,
+      listing: {
+        id: t.listing.id,
+        slug: t.listing.slug,
+        title: t.listing.title,
+        sellerName: t.listing.organization?.name || null,
+      },
+      guestName: t.guestName,
+      guestPhone: t.guestPhone,
+      buyerUserId: t.buyerUserId,
+      escalationStatus: t.escalationStatus,
+      escalationReason: t.escalationReason,
+      escalatedAt: t.escalatedAt,
+      lastMessageAt: t.lastMessageAt,
+      messageCount: t._count.messages,
+      preview: t.messages[0]?.body?.slice(0, 160) || null,
     }));
   }
 
@@ -253,6 +395,24 @@ export class ListingChatService {
     return listing;
   }
 
+  private async assertSupportUser(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { platformRole: true, isActive: true },
+    });
+    if (!user?.isActive || !SUPPORT_ROLES.includes(user.platformRole)) {
+      throw new ForbiddenException('Support/admin role required');
+    }
+  }
+
+  private async isSupportUser(userId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { platformRole: true, isActive: true },
+    });
+    return !!user?.isActive && SUPPORT_ROLES.includes(user.platformRole);
+  }
+
   private async assertThreadAccess(
     thread: {
       buyerUserId: string | null;
@@ -264,6 +424,7 @@ export class ListingChatService {
     if (access.userId && thread.buyerUserId === access.userId) return;
     if (access.guestToken && thread.guestToken === access.guestToken) return;
     if (access.userId) {
+      if (await this.isSupportUser(access.userId)) return;
       try {
         await this.orgAccess.requireSellerMember(access.userId, thread.sellerOrganizationId);
         return;
@@ -281,6 +442,9 @@ export class ListingChatService {
     guestPhone: string | null;
     buyerUserId: string | null;
     lastMessageAt: Date | null;
+    escalationStatus?: ChatEscalationStatus;
+    escalatedAt?: Date | null;
+    escalationReason?: string | null;
     listing: {
       id: string;
       slug: string;
@@ -302,6 +466,9 @@ export class ListingChatService {
       guestPhone: thread.guestPhone,
       buyerUserId: thread.buyerUserId,
       lastMessageAt: thread.lastMessageAt,
+      escalationStatus: thread.escalationStatus || ChatEscalationStatus.NONE,
+      escalatedAt: thread.escalatedAt || null,
+      escalationReason: thread.escalationReason || null,
       listing: {
         id: thread.listing.id,
         slug: thread.listing.slug,

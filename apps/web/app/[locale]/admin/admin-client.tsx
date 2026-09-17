@@ -60,6 +60,33 @@ type TaxonNode = {
 };
 type AttrDef = { id: string; code: string; dataType: string; required?: boolean; nameEn?: string; unit?: string | null };
 
+type EscalatedChat = {
+  publicId: string;
+  listing: { id: string; slug: string; title: string; sellerName?: string | null };
+  guestName?: string | null;
+  guestPhone?: string | null;
+  escalationStatus: string;
+  escalationReason?: string | null;
+  escalatedAt?: string | null;
+  lastMessageAt?: string | null;
+  messageCount: number;
+  preview?: string | null;
+};
+
+type ChatMsg = {
+  id: string;
+  senderRole: string;
+  body: string;
+  createdAt: string;
+};
+
+type ChatThreadView = {
+  publicId: string;
+  escalationStatus?: string;
+  listing: { title: string; sellerName?: string | null };
+  messages: ChatMsg[];
+};
+
 function flattenTaxon(nodes: TaxonNode[], depth = 0, acc: Array<TaxonNode & { depth: number }> = []) {
   for (const n of nodes || []) {
     acc.push({ ...n, depth });
@@ -74,6 +101,10 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
   const [pending, setPending] = useState<PendingListing[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [payments, setPayments] = useState<SubmittedPayment[]>([]);
+  const [chatThreads, setChatThreads] = useState<EscalatedChat[]>([]);
+  const [activeChatId, setActiveChatId] = useState('');
+  const [activeChat, setActiveChat] = useState<ChatThreadView | null>(null);
+  const [chatReply, setChatReply] = useState('');
   const [categories, setCategories] = useState<TaxonNode[]>([]);
   const [taxCatId, setTaxCatId] = useState('');
   const [taxAttrs, setTaxAttrs] = useState<AttrDef[]>([]);
@@ -88,22 +119,24 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
       return;
     }
     const me = await fetchMe();
-    if (me.platformRole !== 'SUPER_ADMIN' && me.platformRole !== 'ADMIN') {
+    if (me.platformRole !== 'SUPER_ADMIN' && me.platformRole !== 'ADMIN' && me.platformRole !== 'SUPPORT') {
       setError(copy.admin_forbidden);
       setUser(me);
       return;
     }
     setUser(me);
-    const [list, leadList, payList, cats] = await Promise.all([
-      apiAuthed<PendingListing[]>('/admin/listings/pending'),
+    const [list, leadList, payList, cats, chats] = await Promise.all([
+      apiAuthed<PendingListing[]>('/admin/listings/pending').catch(() => []),
       apiAuthed<Lead[]>('/professionals/leads').catch(() => []),
       apiAuthed<SubmittedPayment[]>('/admin/payments/submitted').catch(() => []),
       fetch(apiUrl('/categories?locale=' + locale)).then((r) => r.json()),
+      apiAuthed<EscalatedChat[]>('/chat/admin/threads?status=OPEN').catch(() => []),
     ]);
     setPending(list || []);
     setLeads(leadList || []);
     setPayments(payList || []);
     setCategories(Array.isArray(cats) ? cats : []);
+    setChatThreads(Array.isArray(chats) ? chats : []);
   }, [copy.admin_forbidden, locale, router]);
 
   useEffect(() => {
@@ -152,6 +185,54 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
         await apiAuthed(`/admin/listings/${id}/${action}`, { method: 'POST', json: {} });
       }
       setMsg(copy.admin_done);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function openChat(publicId: string) {
+    setActiveChatId(publicId);
+    setChatReply('');
+    setBusyId(publicId);
+    try {
+      const t = await apiAuthed<ChatThreadView>(`/chat/threads/${publicId}`);
+      setActiveChat(t);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function sendAdminChat() {
+    if (!activeChatId || !chatReply.trim()) return;
+    setBusyId(activeChatId);
+    setError('');
+    try {
+      const res = await apiAuthed<{ thread: ChatThreadView }>(`/chat/threads/${activeChatId}/admin-messages`, {
+        method: 'POST',
+        json: { body: chatReply.trim() },
+      });
+      setActiveChat(res.thread);
+      setChatReply('');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function resolveChat(publicId: string) {
+    setBusyId(publicId);
+    try {
+      await apiAuthed(`/chat/threads/${publicId}/resolve`, { method: 'POST', json: {} });
+      setMsg(copy.admin_chat_resolved);
+      if (activeChatId === publicId) setActiveChat(null);
+      setActiveChatId('');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
@@ -313,6 +394,76 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
               </article>
             ))}
           </div>
+        </section>
+
+        <section className="panel-card">
+          <h2>
+            {copy.admin_chat_inbox} ({chatThreads.length})
+          </h2>
+          {!chatThreads.length ? <p className="panel-muted">{copy.admin_chat_empty}</p> : null}
+          <div className="panel-stack">
+            {chatThreads.map((t) => (
+              <article key={t.publicId} className="panel-item">
+                <h3>{t.listing.title}</h3>
+                <p className="panel-muted">
+                  {t.listing.sellerName || '—'} · {t.guestName || 'buyer'} · {t.escalationReason || '—'} ·{' '}
+                  {t.messageCount} msgs
+                </p>
+                {t.preview ? <p>{t.preview}</p> : null}
+                <div className="designer-actions">
+                  <button
+                    type="button"
+                    className="mp-btn mp-btn--primary"
+                    disabled={busyId === t.publicId}
+                    onClick={() => void openChat(t.publicId)}
+                  >
+                    {copy.chat_open}
+                  </button>
+                  <button
+                    type="button"
+                    className="mp-btn"
+                    disabled={busyId === t.publicId}
+                    onClick={() => void resolveChat(t.publicId)}
+                  >
+                    {copy.admin_chat_resolve}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+          {activeChat ? (
+            <div className="pk-chat__panel" style={{ marginTop: '1rem' }}>
+              <div className="pk-chat__head">
+                <strong>{activeChat.listing.title}</strong>
+                <span className="pk-chat__sub">{activeChat.listing.sellerName || ''}</span>
+              </div>
+              <div className="pk-chat__msgs">
+                {activeChat.messages.map((m) => (
+                  <div key={m.id} className={`pk-chat__bubble pk-chat__bubble--${m.senderRole.toLowerCase()}`}>
+                    <span className="pk-chat__role">{m.senderRole}</span>
+                    <p>{m.body}</p>
+                  </div>
+                ))}
+              </div>
+              <form
+                className="pk-chat__form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void sendAdminChat();
+                }}
+              >
+                <textarea
+                  value={chatReply}
+                  onChange={(e) => setChatReply(e.target.value)}
+                  rows={2}
+                  placeholder={copy.admin_chat_reply}
+                />
+                <button type="submit" className="mp-btn mp-btn--primary" disabled={!chatReply.trim() || !!busyId}>
+                  {copy.chat_send}
+                </button>
+              </form>
+            </div>
+          ) : null}
         </section>
 
         <section className="panel-card">

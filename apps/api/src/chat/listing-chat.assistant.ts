@@ -20,30 +20,71 @@ type ListingFacts = {
   status: ListingStatus;
 };
 
+export type AssistantOutcome = {
+  reply: string | null;
+  /** Buyer explicitly asked for human/admin, or bot cannot answer a real question. */
+  shouldEscalate: boolean;
+  escalationReason: string | null;
+};
+
+const HUMAN_ADMIN_RE =
+  /ادمین|اپراتور|پشتیبانی|پشتیبان|انسان|اپراتور\s*سایت|با\s*آدم|با\s*انسان|human|admin|support|operator|real\s*person|live\s*agent|speak\s*to\s*(a\s*)?(human|agent|admin)/i;
+
+const QUESTIONISH_RE =
+  /\?|؟|چی|چطور|چگونه|کجا|کی|آیا|میشه|می‌شه|لطفا|لطفاً|قیمت|موجود|سفارش|خرید|how|what|where|when|can\s*you|please|need|help/i;
+
 /**
  * Fact-only assistant for listing chat.
  * Never invents price/stock — only restates published listing fields.
+ * Escalates to site admin when the buyer asks for a human or the bot cannot help.
  */
-export function buildListingAssistantReply(
+export function buildListingAssistantOutcome(
   listing: ListingFacts,
   buyerText: string,
   locale = 'fa',
-): string | null {
+): AssistantOutcome {
   const q = (buyerText || '').trim();
-  if (q.length < 2) return null;
-
-  const asksPrice = /قیمت|نرخ|چنده|چقدر|price|cost|how\s*much/i.test(q);
-  const asksStock = /موجود|موجودی|دارید|داری|stock|available|availability/i.test(q);
-  const asksMoq = /حداقل|moq|سفارش\s*حداقل|minimum/i.test(q);
-  const asksLead = /تحویل|لید\s*تایم|lead\s*time|چند\s*روز|زمان\s*ارسال/i.test(q);
-  const asksWhere = /کجا|شهر|محل|انبار|where|city|location/i.test(q);
-  const asksGeneral = /اطلاعات|مشخصات|جزئیات|بگو|info|detail|spec/i.test(q);
-
-  if (!asksPrice && !asksStock && !asksMoq && !asksLead && !asksWhere && !asksGeneral) {
-    return null;
+  if (q.length < 2) {
+    return { reply: null, shouldEscalate: false, escalationReason: null };
   }
 
   const fa = locale === 'fa' || locale === 'ar';
+  const wantsHuman = HUMAN_ADMIN_RE.test(q);
+
+  const asksPrice = /قیمت|نرخ|چنده|چقدر|price|cost|how\s*much/i.test(q);
+  const asksStock =
+    /موجودی|موجود\s*(هست|است|دارید|داری)?|stock|available|availability|in\s*stock/i.test(q);
+  const asksMoq = /حداقل\s*سفارش|moq|سفارش\s*حداقل|minimum\s*order/i.test(q);
+  const asksLead = /تحویل|لید\s*تایم|lead\s*time|چند\s*روز|زمان\s*ارسال|shipping\s*time/i.test(q);
+  const asksWhere = /کجا(?:ست|ی)?|شهر|محل\s*تأمین|انبار|where|city|location|province/i.test(q);
+  const asksGeneral = /اطلاعات|مشخصات|جزئیات|بگو\s*درباره|info|detail|spec/i.test(q);
+  const canAnswer =
+    asksPrice || asksStock || asksMoq || asksLead || asksWhere || asksGeneral;
+
+  if (wantsHuman) {
+    return {
+      reply: fa
+        ? 'درخواست شما برای اتصال به پشتیبانی سایت ثبت شد. ادمین به‌زودی در همین گفتگو پاسخ می‌دهد.'
+        : 'Your request to reach site support was logged. An admin will reply in this chat shortly.',
+      shouldEscalate: true,
+      escalationReason: 'buyer_requested_admin',
+    };
+  }
+
+  if (!canAnswer) {
+    const escalate = QUESTIONISH_RE.test(q) || q.length >= 12;
+    if (!escalate) {
+      return { reply: null, shouldEscalate: false, escalationReason: null };
+    }
+    return {
+      reply: fa
+        ? 'از روی اطلاعات همین آگهی جواب قطعی ندارم. پیام شما به پشتیبانی سایت ارجاع شد تا ادمین کمک کند. فروشنده هم می‌تواند پاسخ دهد.'
+        : 'I cannot answer from this listing’s published facts. Your message was escalated to site support. The seller can also reply.',
+      shouldEscalate: true,
+      escalationReason: 'assistant_cannot_answer',
+    };
+  }
+
   const lines: string[] = [];
   const title = listing.title;
   const seller = listing.organization?.name || (fa ? 'فروشنده' : 'Seller');
@@ -104,11 +145,24 @@ export function buildListingAssistantReply(
 
   lines.push(
     fa
-      ? 'فروشنده هم پیام شما را می‌بیند و پاسخ می‌دهد.'
-      : 'The seller can also see your message and reply.',
+      ? 'فروشنده هم پیام شما را می‌بیند. برای پشتیبانی سایت بنویسید «ادمین» یا «پشتیبانی».'
+      : 'The seller can also see your message. Write “admin” or “support” to reach site support.',
   );
 
-  return lines.join('\n');
+  return {
+    reply: lines.join('\n'),
+    shouldEscalate: false,
+    escalationReason: null,
+  };
+}
+
+/** @deprecated Prefer buildListingAssistantOutcome */
+export function buildListingAssistantReply(
+  listing: ListingFacts,
+  buyerText: string,
+  locale = 'fa',
+): string | null {
+  return buildListingAssistantOutcome(listing, buyerText, locale).reply;
 }
 
 export { ChatSenderRole };
