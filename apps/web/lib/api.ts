@@ -16,7 +16,7 @@ export async function apiGet<T>(path: string, init?: RequestInit): Promise<T | n
     const res = await fetch(apiUrl(path, { internal: true }), {
       ...init,
       headers: { Accept: 'application/json', ...(init?.headers || {}) },
-      next: { revalidate: 30 },
+      cache: 'no-store',
     });
     if (!res.ok) return null;
     return (await res.json()) as T;

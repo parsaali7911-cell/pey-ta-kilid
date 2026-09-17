@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
-import { PublicPageShell } from '@/components/PublicPageShell';
 import { MarketplaceListingCard } from '@/components/home/marketplace/MarketplaceListingCard';
+import { SiteSearchBar } from '@/components/search/SiteSearchBar';
 import { apiGet } from '@/lib/api';
 import { isLocale, t, type Locale } from '@/lib/i18n-public';
 
@@ -30,12 +30,21 @@ type CategoryRow = {
 };
 
 function categoryName(listing: PublicListing, locale: Locale) {
-  if (listing.category?.name) return listing.category.name;
-  if (locale === 'fa') return listing.category?.nameFa || listing.category?.nameEn || null;
-  if (locale === 'ar') return listing.category?.nameAr || listing.category?.nameEn || null;
-  return listing.category?.nameEn || null;
+  if (locale === 'fa') {
+    return listing.category?.nameFa || listing.category?.name || listing.category?.nameEn || null;
+  }
+  if (locale === 'ar') {
+    return listing.category?.nameAr || listing.category?.name || listing.category?.nameEn || null;
+  }
+  return listing.category?.nameEn || listing.category?.name || null;
 }
 
+function catLabel(c: CategoryRow, locale: Locale) {
+  if (locale === 'fa') return c.nameFa || c.name || c.slug;
+  return c.nameEn || c.name || c.slug;
+}
+
+/** Material Bank–style catalog: light chrome, chips, dense mobile cards. */
 export default async function CatalogPage({
   params,
   searchParams,
@@ -55,34 +64,54 @@ export default async function CatalogPage({
   ]);
 
   const all = listings || [];
+  const cats = (categories || []).slice(0, 16);
   const filtered = categorySlug
     ? all.filter((l) => (l.category?.slug || '').toLowerCase() === categorySlug.toLowerCase())
     : all;
-  const activeCat = (categories || []).find((c) => c.slug === categorySlug);
-  const catTitle =
-    locale === 'fa'
-      ? activeCat?.nameFa || activeCat?.name || categorySlug
-      : activeCat?.nameEn || activeCat?.name || categorySlug;
+  const activeCat = cats.find((c) => c.slug === categorySlug);
+  const heading = categorySlug
+    ? catLabel(activeCat || { slug: categorySlug }, locale)
+    : copy.catalog_title;
 
   return (
-    <PublicPageShell
-      locale={locale}
-      kicker={copy.brand}
-      title={categorySlug ? catTitle || copy.catalog_title : copy.catalog_title}
-      lead={categorySlug ? copy.catalog_lead : copy.catalog_lead}
-      wide
-    >
-      {categorySlug ? (
-        <p className="panel-muted" style={{ marginBottom: '1rem' }}>
-          <a href={`/${locale}/catalog`}>{copy.mp_cats_all}</a>
-          {' · '}
-          {filtered.length} {copy.mp_featured_title}
-        </p>
+    <div className="pk-browse">
+      <div className="pk-browse__head">
+        <div className="pk-browse__titles">
+          <p className="pk-browse__kicker">{copy.mp_cats_title}</p>
+          <h1 className="pk-browse__title">{heading}</h1>
+          <p className="pk-browse__lead">
+            {filtered.length} · {copy.catalog_lead}
+          </p>
+        </div>
+        <div className="pk-browse__search">
+          <SiteSearchBar locale={locale} copy={copy} variant="inline" />
+        </div>
+      </div>
+
+      {cats.length ? (
+        <div className="pk-browse__chips" aria-label={copy.mp_cats_title}>
+          <a
+            className={`pk-browse__chip${!categorySlug ? ' is-active' : ''}`}
+            href={`/${locale}/catalog`}
+          >
+            {copy.mp_cats_all}
+          </a>
+          {cats.map((c) => (
+            <a
+              key={c.slug}
+              className={`pk-browse__chip${categorySlug === c.slug ? ' is-active' : ''}`}
+              href={`/${locale}/catalog?category=${encodeURIComponent(c.slug)}`}
+            >
+              {catLabel(c, locale)}
+            </a>
+          ))}
+        </div>
       ) : null}
+
       {filtered.length === 0 ? (
         <div className="pk-empty">{copy.no_results}</div>
       ) : (
-        <div className="mb-featured__grid">
+        <div className="pk-catalog-grid pk-browse__grid">
           {filtered.map((listing) => {
             const media = (listing.media || []).find(
               (m) => m.url && (!m.status || m.status === 'APPROVED'),
@@ -108,6 +137,6 @@ export default async function CatalogPage({
           })}
         </div>
       )}
-    </PublicPageShell>
+    </div>
   );
 }

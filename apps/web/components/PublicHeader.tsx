@@ -49,18 +49,23 @@ export function PublicHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
     { href: `/${locale}/admin`, label: copy.nav_admin },
   ];
 
-  const headerClass = isHome
-    ? 'site-header public-header site-header--marketplace site-header--with-search'
-    : 'site-header public-header site-header--solid site-header--with-search';
+  const headerClass = [
+    'site-header',
+    'public-header',
+    isHome ? 'site-header--marketplace' : 'site-header--solid',
+    isHome ? 'site-header--home-ai' : 'site-header--with-search',
+  ].join(' ');
 
   return (
     <header className={headerClass}>
       <div className="header-top-row">
         <BrandLogo href={`/${locale}`} label={copy.brand} />
 
-        <div className="header-search-slot header-search-slot--desktop">
-          <SiteSearchBar locale={locale} copy={copy} variant="header" />
-        </div>
+        {!isHome ? (
+          <div className="header-search-slot header-search-slot--desktop">
+            <SiteSearchBar locale={locale} copy={copy} variant="header" />
+          </div>
+        ) : null}
 
         <div className="header-actions">
           <a className="header-supplier-link" href={`/${locale}/register?intent=seller`}>
@@ -82,9 +87,11 @@ export function PublicHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
         </div>
       </div>
 
-      <div className="header-search-slot header-search-slot--mobile">
-        <SiteSearchBar locale={locale} copy={copy} variant="header" />
-      </div>
+      {!isHome ? (
+        <div className="header-search-slot header-search-slot--mobile">
+          <SiteSearchBar locale={locale} copy={copy} variant="header" />
+        </div>
+      ) : null}
 
       <nav className="nav-desktop nav-desktop--center" aria-label={copy.nav_primary}>
         {primary.map((item) => (

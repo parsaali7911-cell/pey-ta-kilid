@@ -92,6 +92,8 @@ export function SiteSearchBar({
   showRecent = false,
   suggestions = [],
   initialQuery = '',
+  placeholder,
+  alwaysShowSuggestions = false,
 }: {
   locale: Locale;
   copy: Record<string, string>;
@@ -99,6 +101,9 @@ export function SiteSearchBar({
   showRecent?: boolean;
   suggestions?: string[];
   initialQuery?: string;
+  placeholder?: string;
+  /** Hero: keep example chips visible (ChatGPT / Perplexity pattern). */
+  alwaysShowSuggestions?: boolean;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -261,7 +266,7 @@ export function SiteSearchBar({
 
   const showHints =
     (showRecent || variant !== 'header') &&
-    focused &&
+    (alwaysShowSuggestions || focused) &&
     (recent.length > 0 || suggestions.length > 0);
 
   const rootClass = [
@@ -288,7 +293,7 @@ export function SiteSearchBar({
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => window.setTimeout(() => setFocused(false), 140)}
-          placeholder={copy.search_placeholder}
+          placeholder={placeholder || copy.search_placeholder}
           autoComplete="off"
           disabled={photoBusy || voiceBusy || voiceRecording}
         />
@@ -333,7 +338,7 @@ export function SiteSearchBar({
 
       {showHints ? (
         <div className="site-search-bar__hints" role="listbox">
-          {recent.length ? (
+          {recent.length && focused ? (
             <>
               <span className="site-search-bar__hints-label">{copy.search_recent}</span>
               <div className="site-search-bar__chips">
@@ -350,16 +355,20 @@ export function SiteSearchBar({
               </div>
             </>
           ) : null}
-          {suggestions.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className="site-search-bar__hint"
-              onMouseDown={() => go(item)}
-            >
-              {item}
-            </button>
-          ))}
+          {suggestions.length ? (
+            <div className="site-search-bar__chips site-search-bar__chips--examples">
+              {suggestions.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className="site-search-bar__chip site-search-bar__chip--example"
+                  onMouseDown={() => go(item)}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
