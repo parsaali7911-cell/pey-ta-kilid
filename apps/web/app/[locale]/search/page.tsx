@@ -10,7 +10,15 @@ export default async function SearchPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ q?: string; from?: string; photo?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    from?: string;
+    photo?: string;
+    projectId?: string;
+    requirementId?: string;
+    category?: string;
+    city?: string;
+  }>;
 }) {
   const { locale: raw } = await params;
   if (!isLocale(raw)) notFound();
@@ -19,7 +27,13 @@ export default async function SearchPage({
 
   return (
     <PublicPageShell locale={raw} kicker={copy.brand} title={copy.search_title} lead={copy.mp_discovery_lead} wide>
-      <SearchClient locale={raw} initialQuery={sp.q} initialPhotoMode={sp.photo === '1'} />
+      <SearchClient
+        locale={raw}
+        initialQuery={sp.q}
+        initialPhotoMode={sp.photo === '1'}
+        projectId={sp.projectId}
+        requirementId={sp.requirementId}
+      />
     </PublicPageShell>
   );
 }

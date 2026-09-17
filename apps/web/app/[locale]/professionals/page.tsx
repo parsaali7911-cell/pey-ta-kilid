@@ -11,7 +11,14 @@ export default async function ProfessionalsPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ onboard?: string; find?: string; specialty?: string; city?: string }>;
+  searchParams: Promise<{
+    onboard?: string;
+    find?: string;
+    specialty?: string;
+    city?: string;
+    projectId?: string;
+    requirementId?: string;
+  }>;
 }) {
   const { locale: raw } = await params;
   if (!isLocale(raw)) notFound();
@@ -28,6 +35,8 @@ export default async function ProfessionalsPage({
           findMode={sp.find === '1'}
           initialSpecialty={sp.specialty}
           initialCity={sp.city}
+          projectId={sp.projectId}
+          requirementId={sp.requirementId}
         />
       </Suspense>
     </PublicPageShell>

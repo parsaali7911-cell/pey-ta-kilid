@@ -64,4 +64,12 @@ export class CreateRfqDraftDto {
   @ValidateNested({ each: true })
   @Type(() => RfqItemInputDto)
   items?: RfqItemInputDto[];
+
+  @IsOptional()
+  @IsString()
+  projectId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  projectRequirementId?: string | null;
 }

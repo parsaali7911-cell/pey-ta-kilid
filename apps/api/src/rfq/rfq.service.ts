@@ -145,6 +145,8 @@ export class RfqService {
         destinationRegion: destination?.region ?? null,
         destinationProvince: destination?.province ?? null,
         destinationCity: destination?.city ?? null,
+        projectId: input.projectId || null,
+        projectRequirementId: input.projectRequirementId || null,
         items: {
           create: itemsInput.map((item, idx) => {
             const listing = item.listingId ? listingById.get(item.listingId) : null;
@@ -173,6 +175,18 @@ export class RfqService {
       include: RFQ_INCLUDE,
     });
 
+    if (input.projectRequirementId) {
+      await this.prisma.projectRequirement
+        .update({
+          where: { id: input.projectRequirementId },
+          data: {
+            rfqId: rfq.id,
+            status: 'RFQ_OPEN',
+            listingId: listingIds[0] || undefined,
+          },
+        })
+        .catch(() => null);
+    }
     // Attach seller org public info onto items for mapper (not in include path easily)
     const enriched = await this.getByIdRaw(rfq.id);
 

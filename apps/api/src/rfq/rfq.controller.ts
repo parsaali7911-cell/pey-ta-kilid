@@ -32,6 +32,8 @@ export class RfqController {
       selectedListingIds: dto.selectedListingIds ?? [],
       buyerNotes: dto.buyerNotes,
       items: dto.items,
+      projectId: dto.projectId,
+      projectRequirementId: dto.projectRequirementId,
     };
     return this.rfqs.createDraft(req.user.userId, input);
   }

@@ -88,6 +88,9 @@ export type CreateRfqDraftFromSearchInput = {
   selectedListingIds: string[];
   buyerNotes?: string | null;
   items?: RfqItemInput[];
+  /** Optional My Project workspace context */
+  projectId?: string | null;
+  projectRequirementId?: string | null;
 };
 
 export type Rfq = {

@@ -20,6 +20,8 @@ export type CreateProfessionalLeadInput = {
   countryCode?: string | null;
   notes?: string | null;
   sourceText?: string | null;
+  projectId?: string | null;
+  projectRequirementId?: string | null;
 };
 
 @Injectable()
@@ -43,8 +45,21 @@ export class ProfessionalLeadsService {
         notes: input.notes || null,
         sourceText: input.sourceText || null,
         status: ProfessionalLeadStatus.OPEN,
+        projectId: input.projectId || null,
+        projectRequirementId: input.projectRequirementId || null,
       },
     });
+    if (input.projectRequirementId) {
+      await this.prisma.projectRequirement
+        .update({
+          where: { id: input.projectRequirementId },
+          data: {
+            professionalLeadId: lead.id,
+            status: 'SOURCING',
+          },
+        })
+        .catch(() => null);
+    }
     return this.toDto(lead);
   }
 

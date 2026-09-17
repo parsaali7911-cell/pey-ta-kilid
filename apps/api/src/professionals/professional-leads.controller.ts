@@ -50,6 +50,14 @@ class CreateLeadDto {
   @IsOptional()
   @IsString()
   locale?: string;
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
+
+  @IsOptional()
+  @IsString()
+  projectRequirementId?: string;
 }
 
 class OrgLeadActionDto {
@@ -100,6 +108,8 @@ export class ProfessionalLeadsController {
       notes: dto.notes,
       sourceText: dto.sourceText,
       locale: dto.locale || 'fa',
+      projectId: dto.projectId,
+      projectRequirementId: dto.projectRequirementId,
     });
   }
 

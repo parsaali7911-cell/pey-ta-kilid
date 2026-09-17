@@ -26,10 +26,14 @@ export function SearchClient({
   locale,
   initialQuery,
   initialPhotoMode = false,
+  projectId,
+  requirementId,
 }: {
   locale: string;
   initialQuery?: string;
   initialPhotoMode?: boolean;
+  projectId?: string;
+  requirementId?: string;
 }) {
   const router = useRouter();
   const ui: Locale = isLocale(locale) ? locale : 'fa';
@@ -340,23 +344,34 @@ export function SearchClient({
           </h2>
           <div className="pk-catalog-grid">
             {hits.map((hit, idx) => (
-              <MarketplaceListingCard
-                key={hit.listingId}
-                locale={ui}
-                copy={copy}
-                badge={preferCheapest && idx < 3 ? copy.search_best_price_badge : undefined}
-                listing={{
-                  slug: hit.preview.slug,
-                  title: hit.preview.title,
-                  categoryName: hit.preview.category?.name,
-                  sellerName: hit.preview.organizationPublic?.name,
-                  displayPrice: hit.preview.displayPrice,
-                  currency: hit.preview.currency,
-                  uomCode: hit.preview.uomCode,
-                  city: hit.preview.facilityPublic?.city,
-                  imageUrl: hit.preview.imageUrl,
-                }}
-              />
+              <div key={hit.listingId}>
+                <MarketplaceListingCard
+                  locale={ui}
+                  copy={copy}
+                  badge={preferCheapest && idx < 3 ? copy.search_best_price_badge : undefined}
+                  listing={{
+                    slug: hit.preview.slug,
+                    title: hit.preview.title,
+                    categoryName: hit.preview.category?.name,
+                    sellerName: hit.preview.organizationPublic?.name,
+                    displayPrice: hit.preview.displayPrice,
+                    currency: hit.preview.currency,
+                    uomCode: hit.preview.uomCode,
+                    city: hit.preview.facilityPublic?.city,
+                    imageUrl: hit.preview.imageUrl,
+                  }}
+                />
+                {projectId && requirementId ? (
+                  <p style={{ margin: '0.35rem 0 0.75rem' }}>
+                    <a
+                      className="mp-btn mp-btn--primary"
+                      href={`/${ui}/projects/${projectId}?linkListing=${encodeURIComponent(hit.listingId)}&requirementId=${encodeURIComponent(requirementId)}`}
+                    >
+                      {copy.proj_attach_listing}
+                    </a>
+                  </p>
+                ) : null}
+              </div>
             ))}
           </div>
         </section>

@@ -20,6 +20,7 @@ import { ErpModule } from './erp/erp.module';
 import { SeoModule } from './seo/seo.module';
 import { DesignerModule } from './designer/designer.module';
 import { ProfessionalLeadsModule } from './professionals/professional-leads.module';
+import { ProjectModule } from './projects/project.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { ProfessionalLeadsModule } from './professionals/professional-leads.modu
     SearchModule,
     DesignerModule,
     ProfessionalLeadsModule,
+    ProjectModule,
     RfqModule,
     QuoteModule,
     CommerceModule,

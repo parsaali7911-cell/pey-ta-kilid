@@ -41,6 +41,7 @@ export function PublicHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
   const primary = [
     { href: `/${locale}/catalog`, label: copy.nav_catalog },
     { href: `/${locale}/search`, label: copy.nav_search },
+    { href: `/${locale}/projects`, label: copy.nav_projects },
     { href: `/${locale}/professionals`, label: copy.nav_professionals },
     { href: `/${locale}/designer`, label: copy.nav_design },
     { href: `/${locale}/buyer`, label: copy.nav_buyer_panel },

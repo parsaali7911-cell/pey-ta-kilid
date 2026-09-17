@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { apiPostClient, apiUrl } from '@/lib/api';
 import type { Locale } from '@/lib/i18n-public';
 import { PROFESSIONAL_SPECIALTY_OPTIONS } from '@/lib/lexicon/specialties';
@@ -37,6 +38,8 @@ export default function ProfessionalsClient({
   findMode = false,
   initialSpecialty,
   initialCity,
+  projectId,
+  requirementId,
 }: {
   locale: Locale;
   copy: Record<string, string>;
@@ -44,7 +47,10 @@ export default function ProfessionalsClient({
   findMode?: boolean;
   initialSpecialty?: string;
   initialCity?: string;
+  projectId?: string;
+  requirementId?: string;
 }) {
+  const router = useRouter();
   const [directory, setDirectory] = useState<ProOrg[]>([]);
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
@@ -87,11 +93,15 @@ export default function ProfessionalsClient({
         notes: notes.trim() || undefined,
         sourceText: notes.trim() || specialty,
         locale,
+        projectId: projectId || undefined,
+        projectRequirementId: requirementId || undefined,
       });
       setMsg(copy.pro_lead_sent);
       setContactName('');
       setNotes('');
-    } catch (err) {
+      if (projectId) {
+        router.push(`/${locale}/projects/${projectId}`);
+      }    } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
     } finally {
       setBusy(false);

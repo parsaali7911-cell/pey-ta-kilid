@@ -284,3 +284,4 @@ export * from './quote';
 export * from './order';
 export * from './seo';
 export * from './lexicon';
+export * from './project';

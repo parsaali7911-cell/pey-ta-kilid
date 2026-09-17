@@ -194,6 +194,53 @@ enum FacilityStatus {
   PENDING
 }
 
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum ProjectStageStatus {
+  PLANNED
+  ACTIVE
+  DONE
+  SKIPPED
+}
+
+enum ProjectMemberRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum ProjectRequirementKind {
+  PRODUCT
+  SERVICE
+}
+
+enum ProjectRequirementStatus {
+  PLANNED
+  SOURCING
+  RFQ_OPEN
+  ORDERED
+  FULFILLED
+  CANCELLED
+}
+
+enum ProjectRequirementSource {
+  MANUAL
+  STAGE_TEMPLATE
+  AI_SUGGESTION
+}
+
+enum ProjectLeadTimeSource {
+  NONE
+  LISTING
+  QUOTE
+  MANUAL_ESTIMATE
+}
+
 model User {
   id           String       @id @default(cuid())
   email        String       @unique
@@ -211,6 +258,8 @@ model User {
   createdQuotes Quote[] @relation("QuoteCreatedBy")
   createdOrders Order[] @relation("OrderCreatedBy")
   professionalReviews ProfessionalReview[] @relation("ProReviewAuthor")
+  ownedProjects Project[] @relation("ProjectCreatedBy")
+  projectMemberships ProjectMember[]
 }
 
 model Organization {
@@ -246,6 +295,7 @@ model Organization {
   sellerQuotes Quote[] @relation("QuoteSellerOrg")
   buyerOrders  Order[] @relation("OrderBuyerOrg")
   sellerOrders Order[] @relation("OrderSellerOrg")
+  projects     Project[]
 
   @@index([isProfessional, isActive])
   @@index([primarySpecialty])
@@ -299,6 +349,7 @@ model Category {
   attributeDefinitions AttributeDefinition[]
   products             Product[]
   listings             Listing[]
+  projectRequirements  ProjectRequirement[]
 
   @@index([parentId])
 }
@@ -407,6 +458,7 @@ model Listing {
   rfqTargets   RfqTarget[]
   quoteItems   QuoteItem[]
   orderItems   OrderItem[]
+  projectRequirements ProjectRequirement[]
 
   @@index([organizationId])
   @@index([categoryId, status])
@@ -534,6 +586,8 @@ model MediaAsset {
   publicId       String      @unique @default(cuid())
   organizationId String
   listingId      String?
+  /// Optional project workspace media (images/docs).
+  projectId      String?
   storageKey     String
   url            String?
   mimeType       String?
@@ -545,9 +599,11 @@ model MediaAsset {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   listing      Listing?     @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([listingId])
   @@index([organizationId])
+  @@index([projectId])
 }
 
 model AuditEvent {
@@ -637,6 +693,7 @@ model Address {
   updatedAt  DateTime @updatedAt
 
   facilities Facility[]
+  projects   Project[]
 }
 
 model GeoPoint {
@@ -650,6 +707,7 @@ model GeoPoint {
 
   facilities   Facility[]
   serviceAreas ServiceArea[]
+  projects     Project[]
 }
 
 model Facility {
@@ -714,14 +772,22 @@ model ProfessionalLead {
   status                ProfessionalLeadStatus @default(OPEN)
   matchedOrganizationId String?
   matchedAt             DateTime?
+  /// Optional project workspace context (does not replace lead lifecycle).
+  projectId             String?
+  projectRequirementId  String?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
 
   matchedOrganization Organization? @relation(fields: [matchedOrganizationId], references: [id])
+  project             Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectRequirement  ProjectRequirement? @relation("LeadProjectContext", fields: [projectRequirementId], references: [id], onDelete: SetNull)
+  linkedFromRequirement ProjectRequirement? @relation("RequirementLinkedLead")
 
   @@index([status, createdAt])
   @@index([matchedOrganizationId])
   @@index([city])
+  @@index([projectId])
+  @@index([projectRequirementId])
 }
 
 /// Extended professional marketplace profile (identity + completeness score /100).
@@ -889,12 +955,18 @@ model Rfq {
   destinationProvince  String?
   destinationCity      String?
   requestedLeadTimeDays Int?
+  /// Optional project workspace context — RFQ remains the commerce source of truth.
+  projectId            String?
+  projectRequirementId String?
   submittedAt          DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
   buyerOrganization Organization @relation("RfqBuyerOrg", fields: [buyerOrganizationId], references: [id], onDelete: Cascade)
   createdByUser     User         @relation("RfqCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  project           Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectRequirement ProjectRequirement? @relation("RfqProjectContext", fields: [projectRequirementId], references: [id], onDelete: SetNull)
+  linkedFromRequirements ProjectRequirement[] @relation("RequirementLinkedRfq")
   items             RfqItem[]
   targets           RfqTarget[]
   quotes            Quote[]
@@ -903,6 +975,8 @@ model Rfq {
   @@index([buyerOrganizationId, status])
   @@index([createdByUserId])
   @@index([status, createdAt])
+  @@index([projectId])
+  @@index([projectRequirementId])
 }
 
 model RfqItem {
@@ -971,6 +1045,7 @@ model Quote {
   createdByUser      User         @relation("QuoteCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   items              QuoteItem[]
   order              Order?
+  projectRequirements ProjectRequirement[]
 
   @@index([rfqId, sellerOrganizationId])
   @@index([sellerOrganizationId, status])
@@ -1042,6 +1117,7 @@ model Order {
   payments           Payment[]
   paymentSchedule    OrderPaymentSchedule?
   reservations       InventoryReservation[]
+  projectRequirements ProjectRequirement[]
 
   @@index([buyerOrganizationId, status])
   @@index([sellerOrganizationId, status])
@@ -1168,3 +1244,118 @@ model ErpOutboxEvent {
   @@index([status, scheduledAt])
   @@index([entityType, entityId])
 }
+
+/// Buyer construction project — procurement workspace context (not a parallel marketplace).
+model Project {
+  id                   String        @id @default(cuid())
+  publicId             String        @unique @default(cuid())
+  ownerOrganizationId  String
+  createdByUserId      String
+  name                 String
+  projectTypeCode      String?
+  areaM2               Decimal?      @db.Decimal(18, 3)
+  startDate            DateTime?
+  estimatedCompletionDate DateTime?
+  currentStageCode     String?
+  status               ProjectStatus @default(ACTIVE)
+  notes                String?
+  addressId            String?
+  geoPointId           String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  ownerOrganization Organization @relation(fields: [ownerOrganizationId], references: [id], onDelete: Cascade)
+  createdByUser     User         @relation("ProjectCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  address           Address?     @relation(fields: [addressId], references: [id], onDelete: SetNull)
+  geoPoint          GeoPoint?    @relation(fields: [geoPointId], references: [id], onDelete: SetNull)
+  members           ProjectMember[]
+  stages            ProjectStage[]
+  requirements      ProjectRequirement[]
+  media             MediaAsset[]
+  rfqs              Rfq[]
+  professionalLeads ProfessionalLead[]
+
+  @@index([ownerOrganizationId, status])
+  @@index([createdByUserId])
+  @@index([currentStageCode])
+}
+
+model ProjectMember {
+  id        String            @id @default(cuid())
+  projectId String
+  userId    String
+  role      ProjectMemberRole @default(VIEWER)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+model ProjectStage {
+  id          String             @id @default(cuid())
+  projectId   String
+  stageCode   String
+  sortOrder   Int                @default(0)
+  status      ProjectStageStatus @default(PLANNED)
+  progressPct Int                @default(0)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, stageCode])
+  @@index([projectId, sortOrder])
+}
+
+model ProjectRequirement {
+  id                    String                    @id @default(cuid())
+  publicId              String                    @unique @default(cuid())
+  projectId             String
+  stageCode             String?
+  kind                  ProjectRequirementKind    @default(PRODUCT)
+  title                 String
+  description           String?
+  categoryId            String?
+  specialtyCode         String?
+  quantity              Decimal?                  @db.Decimal(18, 3)
+  uomCode               String?
+  needByDate            DateTime?
+  procurementTargetDate DateTime?
+  verifiedLeadTimeDays  Int?
+  leadTimeSource        ProjectLeadTimeSource     @default(NONE)
+  status                ProjectRequirementStatus  @default(PLANNED)
+  source                ProjectRequirementSource  @default(MANUAL)
+  listingId             String?
+  rfqId                 String?
+  quoteId               String?
+  orderId               String?
+  professionalLeadId    String?                   @unique
+  sortOrder             Int                       @default(0)
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+
+  project          Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  category         Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  listing          Listing?           @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  rfq              Rfq?               @relation("RequirementLinkedRfq", fields: [rfqId], references: [id], onDelete: SetNull)
+  quote            Quote?             @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  order            Order?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  professionalLead ProfessionalLead?  @relation("RequirementLinkedLead", fields: [professionalLeadId], references: [id], onDelete: SetNull)
+  rfqsFromContext  Rfq[]              @relation("RfqProjectContext")
+  leadsFromContext ProfessionalLead[] @relation("LeadProjectContext")
+
+  @@index([projectId, status])
+  @@index([projectId, stageCode])
+  @@index([listingId])
+  @@index([rfqId])
+  @@index([quoteId])
+  @@index([orderId])
+  @@index([categoryId])
+}
+
