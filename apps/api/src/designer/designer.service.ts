@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ListingStatus, MediaStatus } from '@prisma/client';
 import { AI_PROVIDER_NOT_CONFIGURED } from '@peytakilid/shared-types';
+import sharp from 'sharp';
 import { AiGatewayService } from '../ai/ai-gateway.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -58,14 +59,14 @@ export class DesignerService {
   status() {
     return {
       enabled: true,
-      dailyLimit: 20,
+      dailyLimit: 12,
       usedInLast24h: [...jobs.values()].filter((j) => Date.now() - j.createdAt < 86_400_000)
         .length,
-      remaining: 20,
+      remaining: 12,
       provider: this.ai.getProviderName(),
       imageEditConfigured: this.ai.getProviderName() !== 'none',
       providerStatus: this.ai.getProviderName() === 'none' ? 'not_configured' : 'ready',
-      note: 'Design must bind to a real Peytakilid Listing. AI must not invent materials.',
+      note: 'Design binds to a real listing photo. Product identity is locked via a reference swatch.',
     };
   }
 
@@ -119,7 +120,11 @@ export class DesignerService {
       },
     });
     if (!listing) throw new NotFoundException('Published listing not found');
-    return listing;
+    return {
+      ...listing,
+      imageUrl: listing.media[0]?.url || null,
+      hasProductImage: Boolean(resolveListingProductImage(listing.media[0])),
+    };
   }
 
   /** Catalog picker for designer — published listings only. */
@@ -191,29 +196,29 @@ export class DesignerService {
     jobs.set(publicId, job);
 
     try {
-      let spaceCaption = '';
-      try {
-        const vision = await this.ai.vision({
-          imageRef: spaceMeta.path,
-          prompt:
-            'Describe this interior/construction space for applying a real marketplace material. JSON with caption, roomType, color.',
-          maxOutputTokens: 180,
-        });
-        spaceCaption = vision.caption || JSON.stringify(vision.attributes);
-      } catch {
-        // Vision optional — image edit can still run from space photo + listing text.
-        spaceCaption = '';
+      const productImageRef = resolveListingProductImage(listing.media[0]);
+      if (!productImageRef) {
+        throw new BadRequestException(
+          'This listing has no product photo. Upload a clear product image first so design can preserve material identity.',
+        );
       }
 
-      const productImageRef = resolveListingProductImage(listing.media[0]);
+      // Bake product swatch into one edit image (OpenAI edits allow a single image field).
+      const compositePath = join(DESIGN_ROOT, `${publicId}-composite.png`);
+      await composeSpaceWithProductSwatch(spaceMeta.path, productImageRef, compositePath);
+
       const vizPrompt = [
-        `Apply ONLY this real Peytakilid catalog product into the uploaded customer space photo.`,
-        `Product title: ${listing.title}`,
-        listing.description ? `Product description: ${listing.description.slice(0, 280)}` : '',
-        spaceCaption ? `Space description: ${spaceCaption}` : '',
+        'Photoreal construction-marketplace visualization.',
+        'The input image has TWO parts: LEFT = customer room/space, RIGHT = PRODUCT MATERIAL SWATCH (reference strip).',
+        `Product title: “${listing.title}”`,
+        listing.description ? `Notes: ${listing.description.slice(0, 180)}` : '',
         `Customer request: ${input.prompt.trim()}`,
-        `Keep room geometry realistic. Do not invent a different product, brand, price, or stock.`,
-        `Photorealistic visualization suitable for construction marketplace.`,
+        'RULES:',
+        '1) Apply ONLY the material from the RIGHT swatch onto the correct surface in the LEFT room (usually floor, unless asked otherwise).',
+        '2) Preserve swatch identity exactly: color, pattern, veins, gloss/matte, scale of motif. Do NOT invent another tile/stone/wood.',
+        '3) Keep room geometry, openings, and furniture silhouette. Realistic lighting/perspective.',
+        '4) FINAL OUTPUT must show ONLY the room — remove the right swatch panel completely.',
+        '5) Fidelity to the catalog swatch is more important than beautification.',
       ]
         .filter(Boolean)
         .join('\n');
@@ -221,8 +226,7 @@ export class DesignerService {
       const image = await this.ai.imageGenerate({
         prompt: vizPrompt,
         size: '1024x1024',
-        imageRef: spaceMeta.path,
-        productImageRef: productImageRef || undefined,
+        imageRef: compositePath,
       });
 
       ensureDir(DESIGN_RESULTS);
@@ -234,10 +238,10 @@ export class DesignerService {
       job.resultImageUrl = `/api/uploads/designer/results/${resultFile}`;
       job.resultNote =
         input.locale === 'en'
-          ? `Visualization of “${listing.title}” in your uploaded space.`
+          ? `Visualization of “${listing.title}” using the listing’s real product photo.`
           : input.locale === 'ar'
-            ? `تصور لمنتج «${listing.title}» في المساحة التي رفعتها.`
-            : `نمایش «${listing.title}» در فضای آپلود‌شده شما.`;
+            ? `تصور لـ«${listing.title}» اعتماداً على صورة المنتج الحقيقية.`
+            : `نمایش «${listing.title}» با حفظ ظاهر واقعی عکس کالا.`;
     } catch (e) {
       const code = (e as { code?: string; response?: { code?: string } })?.code;
       const responseCode = (e as { response?: { code?: string } })?.response?.code;
@@ -246,21 +250,12 @@ export class DesignerService {
         responseCode === AI_PROVIDER_NOT_CONFIGURED ||
         e instanceof ServiceUnavailableException
       ) {
-        // Fallback text-only note when OpenAI is not configured — still bound to real listing.
-        try {
-          const out = await this.ai.complete({
-            system:
-              'You assist a construction marketplace design tool. Only describe applying the given REAL listing material to the uploaded space. Never invent a product, price, or stock.',
-            prompt: `Listing: ${listing.title} (slug=${listing.slug}). User request: ${input.prompt}`,
-            maxOutputTokens: 220,
-          });
-          job.status = 'READY';
-          job.resultNote = out.text;
-        } catch {
-          job.status = 'PROVIDER_UNAVAILABLE';
-          job.resultNote =
-            'Design request captured and bound to a real listing. Image generation provider is not configured yet — RFQ/search can continue from this listing.';
-        }
+        job.status = 'PROVIDER_UNAVAILABLE';
+        job.resultNote =
+          'Design request captured and bound to a real listing. Image generation provider is not configured yet.';
+      } else if (e instanceof BadRequestException) {
+        job.status = 'FAILED';
+        job.errorMessage = e.message;
       } else {
         job.status = 'FAILED';
         job.errorMessage = e instanceof Error ? e.message : 'design_failed';
@@ -294,4 +289,54 @@ function resolveListingProductImage(
     if (existsSync(abs)) return abs;
   }
   return null;
+}
+
+/** LEFT room + RIGHT product swatch in one PNG for single-image edit APIs. */
+async function composeSpaceWithProductSwatch(
+  spacePath: string,
+  productPath: string,
+  outPath: string,
+) {
+  ensureDir(DESIGN_ROOT);
+  const width = 1024;
+  const height = 1024;
+  const swatchW = 280;
+  const roomW = width - swatchW;
+
+  const room = await sharp(spacePath)
+    .resize(roomW, height, { fit: 'cover', position: 'centre' })
+    .png()
+    .toBuffer();
+  const swatch = await sharp(productPath)
+    .resize(swatchW, height, { fit: 'cover', position: 'centre' })
+    .png()
+    .toBuffer();
+
+  // Label bar on swatch edge so the model clearly sees "reference".
+  const label = await sharp({
+    create: {
+      width: swatchW,
+      height: 36,
+      channels: 3,
+      background: { r: 20, g: 30, b: 28 },
+    },
+  })
+    .png()
+    .toBuffer();
+
+  await sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background: { r: 245, g: 240, b: 232 },
+    },
+  })
+    .composite([
+      { input: room, left: 0, top: 0 },
+      { input: swatch, left: roomW, top: 0 },
+      { input: label, left: roomW, top: 0 },
+    ])
+    .png()
+    .toFile(outPath);
 }

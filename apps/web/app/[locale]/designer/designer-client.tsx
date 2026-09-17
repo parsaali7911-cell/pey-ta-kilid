@@ -40,12 +40,12 @@ const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
 
 function defaultPromptForListing(locale: Locale, title: string): string {
   if (locale === 'en') {
-    return `Apply “${title}” realistically into this uploaded project space. Keep geometry and lighting natural.`;
+    return `Apply ONLY “${title}” onto the floor. Keep the exact color/pattern from the product photo. Do not invent a different material.`;
   }
   if (locale === 'ar') {
-    return `طبّق «${title}» بشكل واقعي داخل المساحة المرفوعة مع الحفاظ على الإضاءة والهندسة.`;
+    return `طبّق فقط «${title}» على الأرضية مع الحفاظ على اللون والنقش من صورة المنتج. لا تخترع خامة أخرى.`;
   }
-  return `محصول «${title}» را به‌صورت واقعی داخل فضای آپلود‌شده اعمال کن؛ نور و هندسه فضا حفظ شود.`;
+  return `فقط محصول «${title}» را روی کف اعمال کن. رنگ، نقش و بافت عکس کالا دقیقاً حفظ شود؛ مادهٔ دیگری اختراع نشود.`;
 }
 
 async function prepareImageForUpload(file: File): Promise<File> {

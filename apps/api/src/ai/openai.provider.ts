@@ -196,19 +196,13 @@ export class OpenAiProvider implements AiProvider {
     form.append('prompt', input.prompt);
     form.append('size', input.size || '1024x1024');
     form.append('n', '1');
+    // OpenAI images/edits accepts a single image field — product identity is
+    // baked into the composite by DesignerService when needed.
     form.append(
       'image',
       new Blob([new Uint8Array(spaceBytes.buffer)], { type: spaceBytes.mimeType }),
       'space.png',
     );
-    if (input.productImageRef) {
-      const productBytes = await readImageBytes(input.productImageRef);
-      form.append(
-        'image',
-        new Blob([new Uint8Array(productBytes.buffer)], { type: productBytes.mimeType }),
-        'product.png',
-      );
-    }
 
     const res = await fetch('https://api.openai.com/v1/images/edits', {
       method: 'POST',
