@@ -138,6 +138,26 @@ describe('intent rule parser (Phase 0-F)', () => {
     }
   });
 
+  it('routes short Persian sell prompt to seller onboard', () => {
+    const service = new IntentService();
+    const res = service.parseHomepageRequest({
+      text: 'فروش سرامیک',
+      locale: 'fa',
+      market: 'IRAN',
+    });
+    expect(res.next).toBe('seller_onboard');
+    expect(res.route?.categorySlug).toBe('ceramic-tile');
+  });
+
+  it('extracts bare tile size like کف ۸۰ as size_cm', () => {
+    const req = parseNaturalLanguageRules({
+      text: 'سرامیک کف ۸۰ برای ویلا در کرج',
+      locale: 'fa',
+    });
+    expect(req.attributeFilters.size_cm).toBe('80x80');
+    expect(req.location?.city).toBe('Karaj');
+  });
+
   it('routes seller onboard from Persian seller prompt', () => {
     const service = new IntentService();
     const res = service.parseHomepageRequest({

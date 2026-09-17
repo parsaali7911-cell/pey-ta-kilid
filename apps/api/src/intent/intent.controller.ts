@@ -4,15 +4,15 @@ import { IntentService } from './intent.service';
 
 /**
  * Homepage Natural Language Request contract.
- * Rule-path only — no LLM, no Search execution, no RFQ engine, no Vision.
+ * Rules always run; OpenAI enrichment when AI_PROVIDER=openai + key.
  */
 @Controller('intent')
 export class IntentController {
   constructor(private readonly intent: IntentService) {}
 
   @Post('nl')
-  parseHomepage(@Body() body: HomepageNaturalLanguageRequestDto) {
-    return this.intent.parseHomepageRequest({
+  async parseHomepage(@Body() body: HomepageNaturalLanguageRequestDto) {
+    return this.intent.parseHomepageRequestAsync({
       text: body.text,
       locale: body.locale,
       market: body.market,

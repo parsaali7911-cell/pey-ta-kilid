@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import {
   HomepageNaturalLanguageRequest,
   HomepageNaturalLanguageResponse,
@@ -8,31 +8,57 @@ import {
   RequestIntent,
   RfqDraftFromRequirements,
 } from '@peytakilid/shared-types';
+import { AiGatewayService } from '../ai/ai-gateway.service';
 import { requirementsToSearchQuery } from '../search/search-query.adapter';
+import { enrichRequirementsWithAi } from './intent-ai.enricher';
 import {
   buildClarificationPrompt,
   parseNaturalLanguageRules,
 } from './intent-rule.parser';
 
 /**
- * Deterministic intent path only.
- * Any free-form homepage prompt becomes an action (search / onboard / find pro).
+ * Homepage NL brain: deterministic rules first, optional OpenAI enrichment.
  * Does not invent price, stock, seller, or availability.
  */
 @Injectable()
 export class IntentService {
+  constructor(@Optional() private readonly ai?: AiGatewayService) {}
+
+  /** Sync rule path — used by unit tests and as AI fallback. */
   parseHomepageRequest(
     input: HomepageNaturalLanguageRequest,
   ): HomepageNaturalLanguageResponse {
-    const text = (input.text ?? '').trim();
     const requirements = parseNaturalLanguageRules({
-      text,
+      text: input.text ?? '',
+      locale: input.locale ?? null,
+      market: input.market ?? null,
+      imageAssetId: input.imageAssetId ?? null,
+    });
+    return this.toResponse(requirements, (input.text ?? '').trim());
+  }
+
+  /** Production path: rules + optional AI correction when configured. */
+  async parseHomepageRequestAsync(
+    input: HomepageNaturalLanguageRequest,
+  ): Promise<HomepageNaturalLanguageResponse> {
+    let requirements = parseNaturalLanguageRules({
+      text: input.text ?? '',
       locale: input.locale ?? null,
       market: input.market ?? null,
       imageAssetId: input.imageAssetId ?? null,
     });
 
-    // Soft clarification only — never blocks free-form search on the homepage hub.
+    if (this.ai && this.ai.getProviderName() !== 'none') {
+      requirements = await enrichRequirementsWithAi(this.ai, requirements);
+    }
+
+    return this.toResponse(requirements, (input.text ?? '').trim());
+  }
+
+  private toResponse(
+    requirements: ReturnType<typeof parseNaturalLanguageRules>,
+    text: string,
+  ): HomepageNaturalLanguageResponse {
     const clarification = buildClarificationPrompt(requirements);
     const intentResult: IntentResult = {
       intent: requirements.intent,
@@ -121,7 +147,6 @@ export class IntentService {
       };
     }
 
-    // Default for any free-form prompt: run catalog search with extracted filters.
     const searchQuery = requirementsToSearchQuery(requirements);
     const rfqDraft: RfqDraftFromRequirements = {
       requirements,

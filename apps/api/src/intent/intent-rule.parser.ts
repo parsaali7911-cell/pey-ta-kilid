@@ -236,9 +236,13 @@ function classifyJourney(
     /(?:^|[\s،,])(?:من\s+)?(?:یک\s+)?(?:فروشنده|تأمین[\u200c\s]*کننده|تامین[\u200c\s]*کننده|تولیدکننده|کارخانه)(?:\s+ی|\s+یِ)?/i.test(
       rawText,
     ) ||
-    /بفروش(?:م|یم|د)|فروش\s*می[\u200c]?کن|می[\u200c]?خوا(?:م|هم)\s+.+\s*بفروش|ثبت\s*کالا|ورود\s*محصول|لیست(?:ینگ)?\s*(?:جدید|کن)/i.test(
+    /بفروش(?:م|یم|د)|فروش\s*می[\u200c]?کن|می[\u200c]?خوا(?:م|هم)\s+.+\s*بفروش|می[\u200c]?فروش(?:م|یم)|ثبت\s*کالا|ورود\s*محصول|لیست(?:ینگ)?\s*(?:جدید|کن)/i.test(
       rawText,
     ) ||
+    // "فروش سرامیک" / "عرضه شیرآلات" as seller listing (not "قیمت فروش")
+    (/^(?:فروش|عرضه)\s+\S+/i.test(rawText.trim()) &&
+      !/^(?:قیمت|نرخ)\s*فروش/i.test(rawText.trim())) ||
+    /(?:^|[\s،,])برای\s*فروش(?:\s|$)/i.test(rawText) ||
     /\bi\s+am\s+(?:a\s+|an\s+)?(?:seller|supplier|manufacturer|factory)\b/i.test(normalized) ||
     /\bwe\s+(?:sell|supply|manufacture)\b/i.test(normalized) ||
     /\b(?:want\s+to\s+sell|selling|list\s+(?:my\s+)?product)\b/i.test(normalized);
@@ -556,12 +560,25 @@ function extractAttributes(text: string): Record<string, string | number | boole
   const size = text.match(/(\d+)\s*[x×*✕]\s*(\d+)/i);
   if (size) {
     attrs.size_cm = `${size[1]}x${size[2]}`;
+  } else {
+    // Iranian shorthand: "سرامیک کف ۸۰" / "سایز ۶۰" / "کاشی ۸۰ سانتی"
+    const bare = text.match(
+      /(?:سایز|اندازه)\s*(\d{2,3})\b|(?:سرامیک|کاشی|کفپوش)?\s*کف\s*(\d{2,3})\b|(?:سرامیک|کاشی)\s+(\d{2,3})(?!\s*(?:متر|m2|کیلو|تن|عدد))|\b(\d{2,3})\s*(?:سانتی(?:[\u200c\s]*متر)?|cm)\b/i,
+    );
+    if (bare) {
+      const n = bare[1] || bare[2] || bare[3] || bare[4];
+      if (n) attrs.size_cm = `${n}x${n}`;
+    }
   }
 
   if (/\bupvc\b|upcvc|یو[\u200c\s]*پی[\u200c\s]*وی[\u200c\s]*سی/i.test(text)) {
     attrs.material = 'upvc';
   } else if (/چوب(?:ی)?|wooden|solid\s*wood|\bmdf\b|ام[\u200c\s]*دی[\u200c\s]*اف/i.test(text)) {
     attrs.material = 'wood';
+  }
+
+  if (/های[\u200c\s]*گلاس|هایگلاس|high[\-\s]*gloss/i.test(text)) {
+    attrs.finish = 'high_gloss';
   }
 
   if (/رنگ\s*روغن|\boil\s*paint\b/i.test(text)) {
