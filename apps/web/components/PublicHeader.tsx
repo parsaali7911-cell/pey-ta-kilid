@@ -68,12 +68,16 @@ export function PublicHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
         ) : null}
 
         <div className="header-actions">
-          <a className="header-supplier-link" href={`/${locale}/register?intent=seller`}>
-            {copy.nav_sellers}
-          </a>
-          <a className="header-supplier-link" href={`/${locale}/login`}>
-            {copy.auth_login_cta}
-          </a>
+          {!isHome ? (
+            <>
+              <a className="header-supplier-link" href={`/${locale}/register?intent=seller`}>
+                {copy.nav_sellers}
+              </a>
+              <a className="header-supplier-link" href={`/${locale}/login`}>
+                {copy.auth_login_cta}
+              </a>
+            </>
+          ) : null}
           <LanguageSwitcher locale={locale} />
           <button
             type="button"
@@ -93,13 +97,15 @@ export function PublicHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
         </div>
       ) : null}
 
-      <nav className="nav-desktop nav-desktop--center" aria-label={copy.nav_primary}>
-        {primary.map((item) => (
-          <a key={item.href + item.label} href={item.href}>
-            {item.label}
-          </a>
-        ))}
-      </nav>
+      {!isHome ? (
+        <nav className="nav-desktop nav-desktop--center" aria-label={copy.nav_primary}>
+          {primary.map((item) => (
+            <a key={item.href + item.label} href={item.href}>
+              {item.label}
+            </a>
+          ))}
+        </nav>
+      ) : null}
 
       {open ? (
         <div id="mobile-nav" className="nav-drawer">
