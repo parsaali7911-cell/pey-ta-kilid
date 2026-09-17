@@ -60,6 +60,7 @@ type EscalatedChat = {
   listing: { id: string; slug: string; title: string; sellerName?: string | null };
   guestName?: string | null;
   guestPhone?: string | null;
+  buyerLocale?: string | null;
   escalationStatus: string;
   escalationReason?: string | null;
   escalatedAt?: string | null;
@@ -68,9 +69,19 @@ type EscalatedChat = {
   preview?: string | null;
 };
 
-type ChatMsg = { id: string; senderRole: string; body: string; createdAt: string };
+type ChatMsg = {
+  id: string;
+  senderRole: string;
+  text?: string;
+  body: string;
+  original?: string | null;
+  sourceLang?: string | null;
+  createdAt: string;
+};
+
 type ChatThreadView = {
   publicId: string;
+  buyerLocale?: string | null;
   escalationStatus?: string;
   listing: { title: string; sellerName?: string | null };
   messages: ChatMsg[];
@@ -424,7 +435,8 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
                   >
                     <strong>{t.listing.title}</strong>
                     <span>
-                      {t.guestName || 'buyer'} · {reasonLabel(t.escalationReason, copy)}
+                      {t.guestName || 'buyer'}
+                      {t.buyerLocale ? ` · ${t.buyerLocale}` : ''} · {reasonLabel(t.escalationReason, copy)}
                     </span>
                     {t.preview ? <em>{t.preview}</em> : null}
                   </button>
@@ -436,7 +448,10 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
                     <div className="admin-inbox__thread-head">
                       <div>
                         <strong>{activeChat.listing.title}</strong>
-                        <span className="panel-muted">{activeChat.listing.sellerName || ''}</span>
+                        <span className="panel-muted">
+                          {activeChat.listing.sellerName || ''}
+                          {activeChat.buyerLocale ? ` · ${copy.chat_buyer_lang}: ${activeChat.buyerLocale}` : ''}
+                        </span>
                       </div>
                       <button
                         type="button"
@@ -450,8 +465,17 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
                     <div className="pk-chat__msgs">
                       {activeChat.messages.map((m) => (
                         <div key={m.id} className={`pk-chat__bubble pk-chat__bubble--${m.senderRole.toLowerCase()}`}>
-                          <span className="pk-chat__role">{m.senderRole}</span>
-                          <p>{m.body}</p>
+                          <span className="pk-chat__role">
+                            {m.senderRole}
+                            {m.sourceLang ? ` · ${m.sourceLang}` : ''}
+                          </span>
+                          <p>{m.text || m.body}</p>
+                          {m.original ? (
+                            <p className="pk-chat__original">
+                              <span>{copy.chat_staff_original}</span>
+                              {m.original}
+                            </p>
+                          ) : null}
                         </div>
                       ))}
                     </div>

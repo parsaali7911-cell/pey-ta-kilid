@@ -11,9 +11,18 @@ import {
   PlatformRole,
 } from '@prisma/client';
 import { randomBytes } from 'crypto';
+import { AiGatewayService } from '../ai/ai-gateway.service';
 import { OrgAccessService } from '../common/org-access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildListingAssistantOutcome } from './listing-chat.assistant';
+import {
+  detectChatLanguage,
+  isPersianLocale,
+  normalizeChatLocale,
+  prepareAssistantMessageBodies,
+  prepareBuyerMessageBodies,
+  prepareStaffMessageBodies,
+} from './listing-chat.i18n';
 
 const SUPPORT_ROLES: PlatformRole[] = [
   PlatformRole.SUPER_ADMIN,
@@ -21,11 +30,14 @@ const SUPPORT_ROLES: PlatformRole[] = [
   PlatformRole.SUPPORT,
 ];
 
+type ChatAudience = 'buyer' | 'staff';
+
 @Injectable()
 export class ListingChatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orgAccess: OrgAccessService,
+    private readonly ai: AiGatewayService,
   ) {}
 
   async startOrGetThread(input: {
@@ -39,6 +51,7 @@ export class ListingChatService {
   }) {
     const listing = await this.findPublishedListing(input.listingSlugOrId);
     const body = (input.firstMessage || '').trim();
+    const pageLocale = normalizeChatLocale(input.locale);
 
     let thread = null as Awaited<ReturnType<typeof this.prisma.listingChatThread.findFirst>>;
 
@@ -66,18 +79,35 @@ export class ListingChatService {
           guestName: input.userId ? null : guestName,
           guestPhone: input.userId ? null : (input.guestPhone || null)?.trim() || null,
           guestToken: input.userId ? null : randomBytes(24).toString('hex'),
+          buyerLocale: pageLocale || 'fa',
         },
       });
 
+      const welcomeFa = `گفتگو درباره «${listing.title}» شروع شد. اول دستیار پاسخ می‌دهد؛ در صورت نیاز ادمین سایت وصل می‌شود. پیام‌های غیر فارسی برای تیم به فارسی ترجمه می‌شوند.`;
+      const welcomeEn = `Chat started about “${listing.title}”. Assistant replies first; site admin joins if needed. Non-Persian messages are translated to Persian for our team.`;
+      const welcomeBodies = await prepareAssistantMessageBodies(
+        this.ai,
+        welcomeFa,
+        pageLocale || 'fa',
+      );
+      const welcomeForBuyer =
+        welcomeBodies.translated || isPersianLocale(pageLocale)
+          ? welcomeBodies.bodyForBuyer
+          : welcomeEn;
       await this.prisma.listingChatMessage.create({
         data: {
           threadId: thread.id,
           senderRole: ChatSenderRole.SYSTEM,
-          body:
-            (input.locale || 'fa') === 'en'
-              ? `Chat started about “${listing.title}”. Assistant replies first; site admin joins if needed.`
-              : `گفتگو درباره «${listing.title}» شروع شد. اول دستیار پاسخ می‌دهد؛ در صورت نیاز ادمین سایت وصل می‌شود.`,
+          body: welcomeForBuyer,
+          bodyFa: welcomeBodies.bodyFa,
+          bodyForBuyer: welcomeForBuyer,
+          sourceLang: 'fa',
         },
+      });
+    } else if (!thread.buyerLocale && pageLocale) {
+      thread = await this.prisma.listingChatThread.update({
+        where: { id: thread.id },
+        data: { buyerLocale: pageLocale },
       });
     }
 
@@ -118,7 +148,8 @@ export class ListingChatService {
     });
     if (!thread) throw new NotFoundException('Thread not found');
     await this.assertThreadAccess(thread, access);
-    return this.serializeThread(thread);
+    const audience = await this.resolveAudience(thread, access);
+    return this.serializeThread(thread, audience);
   }
 
   async appendBuyerMessage(input: {
@@ -150,15 +181,26 @@ export class ListingChatService {
     if (!thread) throw new NotFoundException('Thread not found');
     await this.assertThreadAccess(thread, input);
 
+    const prepared = await prepareBuyerMessageBodies(this.ai, body, input.locale || thread.buyerLocale);
+    const detectedLocale = prepared.sourceLang;
+    const nextBuyerLocale =
+      !isPersianLocale(detectedLocale)
+        ? detectedLocale
+        : normalizeChatLocale(thread.buyerLocale || input.locale || 'fa');
+
     const buyerMsg = await this.prisma.listingChatMessage.create({
       data: {
         threadId: thread.id,
         senderRole: ChatSenderRole.BUYER,
         senderUserId: input.userId || null,
         body,
+        bodyFa: prepared.bodyFa,
+        bodyForBuyer: prepared.bodyForBuyer,
+        sourceLang: prepared.sourceLang,
       },
     });
 
+    // Assistant: FA for staff + EN template fallback when OpenAI translation is off.
     const listingFacts = {
       ...thread.listing,
       facility: thread.listing.facility
@@ -168,56 +210,77 @@ export class ListingChatService {
           }
         : null,
     };
-    const outcome = buildListingAssistantOutcome(
-      listingFacts,
-      body,
-      input.locale || 'fa',
-    );
+    const outcomeFa = buildListingAssistantOutcome(listingFacts, prepared.bodyFa, 'fa');
+    const outcomeEn = buildListingAssistantOutcome(listingFacts, body, 'en');
+    const shouldEscalate = outcomeFa.shouldEscalate || outcomeEn.shouldEscalate;
+    const escalationReason = outcomeFa.escalationReason || outcomeEn.escalationReason;
+    const replyFa = outcomeFa.reply || outcomeEn.reply;
 
     let assistantMsg = null as typeof buyerMsg | null;
-    if (outcome.reply) {
+    if (replyFa) {
+      const localized = await prepareAssistantMessageBodies(this.ai, replyFa, nextBuyerLocale);
+      const bodyForBuyer =
+        localized.translated || isPersianLocale(nextBuyerLocale)
+          ? localized.bodyForBuyer
+          : outcomeEn.reply || localized.bodyForBuyer;
       assistantMsg = await this.prisma.listingChatMessage.create({
         data: {
           threadId: thread.id,
           senderRole: ChatSenderRole.ASSISTANT,
-          body: outcome.reply,
+          body: bodyForBuyer,
+          bodyFa: localized.bodyFa,
+          bodyForBuyer,
+          sourceLang: 'fa',
         },
       });
     }
 
-    if (outcome.shouldEscalate && thread.escalationStatus !== ChatEscalationStatus.OPEN) {
-      await this.prisma.listingChatThread.update({
-        where: { id: thread.id },
-        data: {
-          escalationStatus: ChatEscalationStatus.OPEN,
-          escalatedAt: new Date(),
-          escalationReason: outcome.escalationReason,
-          lastMessageAt: new Date(),
-        },
-      });
-      if (!outcome.reply) {
-        const fa = (input.locale || 'fa') !== 'en';
+    const threadPatch: {
+      lastMessageAt: Date;
+      buyerLocale?: string;
+      escalationStatus?: ChatEscalationStatus;
+      escalatedAt?: Date;
+      escalationReason?: string | null;
+    } = {
+      lastMessageAt: new Date(),
+      buyerLocale: nextBuyerLocale,
+    };
+
+    if (shouldEscalate && thread.escalationStatus !== ChatEscalationStatus.OPEN) {
+      threadPatch.escalationStatus = ChatEscalationStatus.OPEN;
+      threadPatch.escalatedAt = new Date();
+      threadPatch.escalationReason = escalationReason;
+      if (!replyFa) {
+        const sysFa = 'گفتگو به پشتیبانی سایت ارجاع شد. ادمین به‌زودی پاسخ می‌دهد.';
+        const localized = await prepareAssistantMessageBodies(this.ai, sysFa, nextBuyerLocale);
         assistantMsg = await this.prisma.listingChatMessage.create({
           data: {
             threadId: thread.id,
             senderRole: ChatSenderRole.SYSTEM,
-            body: fa
-              ? 'گفتگو به پشتیبانی سایت ارجاع شد. ادمین به‌زودی پاسخ می‌دهد.'
-              : 'This chat was escalated to site support. An admin will reply soon.',
+            body: localized.bodyForBuyer,
+            bodyFa: localized.bodyFa,
+            bodyForBuyer: localized.bodyForBuyer,
+            sourceLang: 'fa',
           },
         });
       }
-    } else {
-      await this.prisma.listingChatThread.update({
-        where: { id: thread.id },
-        data: { lastMessageAt: new Date() },
-      });
     }
 
+    await this.prisma.listingChatThread.update({
+      where: { id: thread.id },
+      data: threadPatch,
+    });
+
+    const audience = await this.resolveAudience(thread, input);
     return {
-      buyerMessage: this.serializeMessage(buyerMsg),
-      assistantMessage: assistantMsg ? this.serializeMessage(assistantMsg) : null,
-      escalated: outcome.shouldEscalate || thread.escalationStatus === ChatEscalationStatus.OPEN,
+      buyerMessage: this.serializeMessage(buyerMsg, audience),
+      assistantMessage: assistantMsg ? this.serializeMessage(assistantMsg, audience) : null,
+      escalated: shouldEscalate || thread.escalationStatus === ChatEscalationStatus.OPEN,
+      translation: {
+        buyerSourceLang: prepared.sourceLang,
+        translatedToFa: prepared.translated,
+        provider: prepared.provider,
+      },
       thread: await this.getThreadPublic(thread.publicId, input),
     };
   }
@@ -237,12 +300,16 @@ export class ListingChatService {
     if (!thread) throw new NotFoundException('Thread not found');
     await this.orgAccess.requireSellerWriter(input.userId, thread.sellerOrganizationId);
 
+    const prepared = await prepareStaffMessageBodies(this.ai, body, thread.buyerLocale);
     const msg = await this.prisma.listingChatMessage.create({
       data: {
         threadId: thread.id,
         senderRole: ChatSenderRole.SELLER,
         senderUserId: input.userId,
         body,
+        bodyFa: prepared.bodyFa,
+        bodyForBuyer: prepared.bodyForBuyer,
+        sourceLang: prepared.sourceLang,
       },
     });
     await this.prisma.listingChatThread.update({
@@ -251,7 +318,12 @@ export class ListingChatService {
     });
 
     return {
-      message: this.serializeMessage(msg),
+      message: this.serializeMessage(msg, 'staff'),
+      translation: {
+        buyerLocale: thread.buyerLocale || 'fa',
+        translatedForBuyer: prepared.translated,
+        provider: prepared.provider,
+      },
       thread: await this.getThreadPublic(thread.publicId, { userId: input.userId }),
     };
   }
@@ -272,12 +344,16 @@ export class ListingChatService {
     });
     if (!thread) throw new NotFoundException('Thread not found');
 
+    const prepared = await prepareStaffMessageBodies(this.ai, body, thread.buyerLocale);
     const msg = await this.prisma.listingChatMessage.create({
       data: {
         threadId: thread.id,
         senderRole: ChatSenderRole.ADMIN,
         senderUserId: input.userId,
         body,
+        bodyFa: prepared.bodyFa,
+        bodyForBuyer: prepared.bodyForBuyer,
+        sourceLang: prepared.sourceLang,
       },
     });
 
@@ -294,7 +370,12 @@ export class ListingChatService {
     });
 
     return {
-      message: this.serializeMessage(msg),
+      message: this.serializeMessage(msg, 'staff'),
+      translation: {
+        buyerLocale: thread.buyerLocale || 'fa',
+        translatedForBuyer: prepared.translated,
+        provider: prepared.provider,
+      },
       thread: await this.getThreadPublic(thread.publicId, { userId: input.userId }),
     };
   }
@@ -329,10 +410,11 @@ export class ListingChatService {
       listing: t.listing,
       guestName: t.guestName,
       buyerUserId: t.buyerUserId,
+      buyerLocale: t.buyerLocale,
       lastMessageAt: t.lastMessageAt,
       messageCount: t._count.messages,
       escalationStatus: t.escalationStatus,
-      preview: t.messages[0]?.body?.slice(0, 140) || null,
+      preview: (t.messages[0]?.bodyFa || t.messages[0]?.body || '').slice(0, 140) || null,
     }));
   }
 
@@ -375,12 +457,13 @@ export class ListingChatService {
       guestName: t.guestName,
       guestPhone: t.guestPhone,
       buyerUserId: t.buyerUserId,
+      buyerLocale: t.buyerLocale,
       escalationStatus: t.escalationStatus,
       escalationReason: t.escalationReason,
       escalatedAt: t.escalatedAt,
       lastMessageAt: t.lastMessageAt,
       messageCount: t._count.messages,
-      preview: t.messages[0]?.body?.slice(0, 160) || null,
+      preview: (t.messages[0]?.bodyFa || t.messages[0]?.body || '').slice(0, 160) || null,
     }));
   }
 
@@ -413,6 +496,19 @@ export class ListingChatService {
     return !!user?.isActive && SUPPORT_ROLES.includes(user.platformRole);
   }
 
+  private async resolveAudience(
+    thread: {
+      buyerUserId: string | null;
+      guestToken: string | null;
+      sellerOrganizationId: string;
+    },
+    access: { userId?: string | null; guestToken?: string | null },
+  ): Promise<ChatAudience> {
+    if (access.guestToken && thread.guestToken === access.guestToken) return 'buyer';
+    if (access.userId && thread.buyerUserId === access.userId) return 'buyer';
+    return 'staff';
+  }
+
   private async assertThreadAccess(
     thread: {
       buyerUserId: string | null;
@@ -435,36 +531,46 @@ export class ListingChatService {
     throw new ForbiddenException('No access to this chat');
   }
 
-  private serializeThread(thread: {
-    publicId: string;
-    guestToken: string | null;
-    guestName: string | null;
-    guestPhone: string | null;
-    buyerUserId: string | null;
-    lastMessageAt: Date | null;
-    escalationStatus?: ChatEscalationStatus;
-    escalatedAt?: Date | null;
-    escalationReason?: string | null;
-    listing: {
-      id: string;
-      slug: string;
-      title: string;
-      organization?: { name: string } | null;
-    };
-    messages: Array<{
-      id: string;
-      senderRole: ChatSenderRole;
-      senderUserId: string | null;
-      body: string;
-      createdAt: Date;
-    }>;
-  }) {
+  private serializeThread(
+    thread: {
+      publicId: string;
+      guestToken: string | null;
+      guestName: string | null;
+      guestPhone: string | null;
+      buyerUserId: string | null;
+      buyerLocale?: string | null;
+      lastMessageAt: Date | null;
+      escalationStatus?: ChatEscalationStatus;
+      escalatedAt?: Date | null;
+      escalationReason?: string | null;
+      listing: {
+        id: string;
+        slug: string;
+        title: string;
+        organization?: { name: string } | null;
+      };
+      messages: Array<{
+        id: string;
+        senderRole: ChatSenderRole;
+        senderUserId: string | null;
+        body: string;
+        bodyFa?: string | null;
+        bodyForBuyer?: string | null;
+        sourceLang?: string | null;
+        createdAt: Date;
+      }>;
+    },
+    audience: ChatAudience,
+  ) {
     return {
       publicId: thread.publicId,
       guestToken: thread.guestToken,
       guestName: thread.guestName,
       guestPhone: thread.guestPhone,
       buyerUserId: thread.buyerUserId,
+      buyerLocale: thread.buyerLocale || 'fa',
+      audience,
+      bilingual: true,
       lastMessageAt: thread.lastMessageAt,
       escalationStatus: thread.escalationStatus || ChatEscalationStatus.NONE,
       escalatedAt: thread.escalatedAt || null,
@@ -475,22 +581,44 @@ export class ListingChatService {
         title: thread.listing.title,
         sellerName: thread.listing.organization?.name || null,
       },
-      messages: thread.messages.map((m) => this.serializeMessage(m)),
+      messages: thread.messages.map((m) => this.serializeMessage(m, audience)),
     };
   }
 
-  private serializeMessage(m: {
-    id: string;
-    senderRole: ChatSenderRole;
-    senderUserId: string | null;
-    body: string;
-    createdAt: Date;
-  }) {
+  private serializeMessage(
+    m: {
+      id: string;
+      senderRole: ChatSenderRole;
+      senderUserId: string | null;
+      body: string;
+      bodyFa?: string | null;
+      bodyForBuyer?: string | null;
+      sourceLang?: string | null;
+      createdAt: Date;
+    },
+    audience: ChatAudience,
+  ) {
+    const bodyFa = m.bodyFa || m.body;
+    const bodyForBuyer = m.bodyForBuyer || m.body;
+    const text = audience === 'staff' ? bodyFa : bodyForBuyer;
+    const showOriginal =
+      audience === 'staff' &&
+      m.senderRole === ChatSenderRole.BUYER &&
+      m.sourceLang &&
+      !isPersianLocale(m.sourceLang) &&
+      m.body !== bodyFa;
+
     return {
       id: m.id,
       senderRole: m.senderRole,
       senderUserId: m.senderUserId,
+      /** Preferred display text for this audience */
+      text,
       body: m.body,
+      bodyFa,
+      bodyForBuyer,
+      sourceLang: m.sourceLang || detectChatLanguage(m.body),
+      original: showOriginal ? m.body : null,
       createdAt: m.createdAt,
     };
   }

@@ -8,7 +8,12 @@ import type { Locale } from '@/lib/i18n-public';
 type ChatMessage = {
   id: string;
   senderRole: 'BUYER' | 'SELLER' | 'ASSISTANT' | 'ADMIN' | 'SYSTEM';
+  text?: string;
   body: string;
+  bodyFa?: string | null;
+  bodyForBuyer?: string | null;
+  sourceLang?: string | null;
+  original?: string | null;
   createdAt: string;
 };
 
@@ -16,6 +21,9 @@ type ChatThread = {
   publicId: string;
   guestToken?: string | null;
   guestName?: string | null;
+  buyerLocale?: string | null;
+  audience?: 'buyer' | 'staff';
+  bilingual?: boolean;
   escalationStatus?: 'NONE' | 'OPEN' | 'RESOLVED';
   listing: { id: string; slug: string; title: string; sellerName?: string | null };
   messages: ChatMessage[];
@@ -246,7 +254,7 @@ export function ListingChatPanel({
               thread!.messages.map((m) => (
                 <div key={m.id} className={`pk-chat__bubble pk-chat__bubble--${m.senderRole.toLowerCase()}`}>
                   <span className="pk-chat__role">{roleLabel(m.senderRole)}</span>
-                  <p>{m.body}</p>
+                  <p>{m.text || m.body}</p>
                 </div>
               ))
             )}
@@ -266,8 +274,11 @@ export function ListingChatPanel({
           </form>
           {error ? <p className="pk-chat__err">{error}</p> : null}
           <p className="pk-chat__hint">
-            {copy.chat_hint ||
-              'اول دستیار از اطلاعات آگهی جواب می‌دهد؛ در صورت نیاز به ادمین سایت وصل می‌شود. فروشنده هم پاسخ می‌دهد.'}
+            {locale === 'fa'
+              ? copy.chat_hint ||
+                'اول دستیار جواب می‌دهد؛ در صورت نیاز ادمین وصل می‌شود. پیام غیر فارسی برای تیم ترجمه می‌شود.'
+              : copy.chat_hint_i18n ||
+                'Write in your language — the team reads Persian via translation; you see replies in your language.'}
           </p>
         </div>
       )}

@@ -191,6 +191,7 @@ export default function SellerClient({
       publicId: string;
       listing?: { title?: string; slug?: string };
       guestName?: string | null;
+      buyerLocale?: string | null;
       preview?: string | null;
       messageCount?: number;
     }>
@@ -198,7 +199,15 @@ export default function SellerClient({
   const [activeChatId, setActiveChatId] = useState('');
   const [activeChat, setActiveChat] = useState<{
     publicId: string;
-    messages: Array<{ id: string; senderRole: string; body: string }>;
+    buyerLocale?: string | null;
+    messages: Array<{
+      id: string;
+      senderRole: string;
+      text?: string;
+      body: string;
+      original?: string | null;
+      sourceLang?: string | null;
+    }>;
   } | null>(null);
   const [chatReply, setChatReply] = useState('');
   const refresh = useCallback(async () => {
@@ -926,7 +935,15 @@ export default function SellerClient({
                     setActiveChatId(t.publicId);
                     void apiAuthed<{
                       publicId: string;
-                      messages: Array<{ id: string; senderRole: string; body: string }>;
+                      buyerLocale?: string | null;
+                      messages: Array<{
+                        id: string;
+                        senderRole: string;
+                        text?: string;
+                        body: string;
+                        original?: string | null;
+                        sourceLang?: string | null;
+                      }>;
                     }>(`/chat/threads/${t.publicId}`)
                       .then((th) => setActiveChat(th))
                       .catch((e) => setError(String(e.message || e)));
@@ -934,7 +951,8 @@ export default function SellerClient({
                 >
                   <strong>{t.listing?.title || t.publicId}</strong>
                   <div className="panel-muted">
-                    {t.guestName || 'Buyer'} · {t.messageCount || 0} · {t.preview || ''}
+                    {t.guestName || 'Buyer'}
+                    {t.buyerLocale ? ` · ${t.buyerLocale}` : ''} · {t.messageCount || 0} · {t.preview || ''}
                   </div>
                 </button>
               ))}
@@ -946,8 +964,17 @@ export default function SellerClient({
                 <div className="pk-chat__msgs">
                   {activeChat.messages.map((m) => (
                     <div key={m.id} className={`pk-chat__bubble pk-chat__bubble--${m.senderRole.toLowerCase()}`}>
-                      <span className="pk-chat__role">{m.senderRole}</span>
-                      <p>{m.body}</p>
+                      <span className="pk-chat__role">
+                        {m.senderRole}
+                        {m.sourceLang ? ` · ${m.sourceLang}` : ''}
+                      </span>
+                      <p>{m.text || m.body}</p>
+                      {m.original ? (
+                        <p className="pk-chat__original">
+                          <span>{copy.chat_staff_original}</span>
+                          {m.original}
+                        </p>
+                      ) : null}
                     </div>
                   ))}
                 </div>
