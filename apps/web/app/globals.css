@@ -149,3 +149,12 @@
   border-radius: var(--sc-radius);
   background: rgba(255, 253, 249, 0.7);
 }
+
+/* Home AI: never use dark sticky chrome */
+.site-header.public-header.site-header--home-ai {
+  background: transparent !important;
+  border-bottom: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  color: #2b2f33 !important;
+}
