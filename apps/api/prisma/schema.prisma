@@ -1418,14 +1418,18 @@ model ListingChatMessage {
   threadId     String
   senderRole   ChatSenderRole
   senderUserId String?
-  /// Original text as typed by the sender.
-  body         String
+  /// Original text as typed by the sender (caption when media).
+  body         String         @default("")
   /// Persian version for seller/admin (translated when buyer wrote non-FA).
   bodyFa       String?
   /// Buyer-facing version in thread.buyerLocale (translated when staff wrote FA).
   bodyForBuyer String?
   /// BCP-47-ish code of `body` (fa/en/ar/…).
   sourceLang   String?
+  /// Optional image/video attachment URL under /api/uploads/chat/…
+  mediaUrl     String?
+  mediaType    String?
+  mediaMime    String?
   createdAt    DateTime       @default(now())
 
   thread     ListingChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)

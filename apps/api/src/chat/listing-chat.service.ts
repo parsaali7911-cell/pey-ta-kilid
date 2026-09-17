@@ -11,6 +11,8 @@ import {
   PlatformRole,
 } from '@prisma/client';
 import { randomBytes } from 'crypto';
+import { mkdir, writeFile } from 'fs/promises';
+import { join } from 'path';
 import { AiGatewayService } from '../ai/ai-gateway.service';
 import { OrgAccessService } from '../common/org-access.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -380,6 +382,135 @@ export class ListingChatService {
     };
   }
 
+  async appendMediaMessage(input: {
+    threadPublicId: string;
+    userId?: string | null;
+    guestToken?: string | null;
+    role: 'BUYER' | 'SELLER' | 'ADMIN';
+    caption?: string | null;
+    locale?: string | null;
+    file: { buffer: Buffer; mimetype: string; originalname: string; size: number };
+  }) {
+    const thread = await this.prisma.listingChatThread.findUnique({
+      where: { publicId: input.threadPublicId },
+    });
+    if (!thread) throw new NotFoundException('Thread not found');
+
+    if (input.role === 'BUYER') {
+      await this.assertThreadAccess(thread, input);
+    } else if (input.role === 'SELLER') {
+      if (!input.userId) throw new ForbiddenException('Seller auth required');
+      await this.orgAccess.requireSellerWriter(input.userId, thread.sellerOrganizationId);
+    } else {
+      if (!input.userId) throw new ForbiddenException('Admin auth required');
+      await this.assertSupportUser(input.userId);
+    }
+
+    const mime = (input.file.mimetype || '').toLowerCase();
+    const isImage = mime.startsWith('image/');
+    const isVideo = mime.startsWith('video/');
+    if (!isImage && !isVideo) {
+      throw new BadRequestException('Only image or video files are allowed');
+    }
+    const max = isVideo ? 40 * 1024 * 1024 : 8 * 1024 * 1024;
+    if (input.file.size > max) {
+      throw new BadRequestException(isVideo ? 'Video too large (max 40MB)' : 'Image too large (max 8MB)');
+    }
+
+    const ext =
+      (input.file.originalname.split('.').pop() || (isVideo ? 'mp4' : 'jpg'))
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '') || (isVideo ? 'mp4' : 'jpg');
+    const name = `${Date.now()}-${randomBytes(6).toString('hex')}.${ext}`;
+    const dir = join(process.cwd(), 'uploads', 'chat');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, name), input.file.buffer);
+    const mediaUrl = `/api/uploads/chat/${name}`;
+    const mediaType = isVideo ? 'VIDEO' : 'IMAGE';
+
+    const caption = (input.caption || '').trim().slice(0, 2000);
+    const defaultBody =
+      caption ||
+      (isVideo
+        ? input.locale === 'en'
+          ? 'Video'
+          : 'ویدیو'
+        : input.locale === 'en'
+          ? 'Photo'
+          : 'عکس');
+
+    let body = defaultBody;
+    let bodyFa = defaultBody;
+    let bodyForBuyer = defaultBody;
+    let sourceLang = 'fa';
+
+    if (input.role === 'BUYER' && caption) {
+      const prepared = await prepareBuyerMessageBodies(this.ai, caption, input.locale || thread.buyerLocale);
+      body = caption;
+      bodyFa = prepared.bodyFa;
+      bodyForBuyer = prepared.bodyForBuyer;
+      sourceLang = prepared.sourceLang;
+      if (!isPersianLocale(prepared.sourceLang)) {
+        await this.prisma.listingChatThread.update({
+          where: { id: thread.id },
+          data: { buyerLocale: prepared.sourceLang },
+        });
+      }
+    } else if ((input.role === 'SELLER' || input.role === 'ADMIN') && caption) {
+      const prepared = await prepareStaffMessageBodies(this.ai, caption, thread.buyerLocale);
+      body = caption;
+      bodyFa = prepared.bodyFa;
+      bodyForBuyer = prepared.bodyForBuyer;
+      sourceLang = 'fa';
+    }
+
+    const senderRole =
+      input.role === 'BUYER'
+        ? ChatSenderRole.BUYER
+        : input.role === 'SELLER'
+          ? ChatSenderRole.SELLER
+          : ChatSenderRole.ADMIN;
+
+    const msg = await this.prisma.listingChatMessage.create({
+      data: {
+        threadId: thread.id,
+        senderRole,
+        senderUserId: input.userId || null,
+        body,
+        bodyFa,
+        bodyForBuyer,
+        sourceLang,
+        mediaUrl,
+        mediaType,
+        mediaMime: mime,
+      },
+    });
+
+    await this.prisma.listingChatThread.update({
+      where: { id: thread.id },
+      data: {
+        lastMessageAt: new Date(),
+        ...(input.role === 'ADMIN'
+          ? {
+              escalationStatus: ChatEscalationStatus.OPEN,
+              escalatedAt: thread.escalatedAt || new Date(),
+              escalationReason: thread.escalationReason || 'admin_joined',
+            }
+          : {}),
+      },
+    });
+
+    const audience =
+      input.role === 'BUYER' ? await this.resolveAudience(thread, input) : ('staff' as const);
+    return {
+      message: this.serializeMessage(msg, audience),
+      thread: await this.getThreadPublic(thread.publicId, {
+        userId: input.userId,
+        guestToken: input.guestToken,
+      }),
+    };
+  }
+
   async resolveEscalation(userId: string, threadPublicId: string) {
     await this.assertSupportUser(userId);
     const thread = await this.prisma.listingChatThread.findUnique({
@@ -594,6 +725,9 @@ export class ListingChatService {
       bodyFa?: string | null;
       bodyForBuyer?: string | null;
       sourceLang?: string | null;
+      mediaUrl?: string | null;
+      mediaType?: string | null;
+      mediaMime?: string | null;
       createdAt: Date;
     },
     audience: ChatAudience,
@@ -617,8 +751,11 @@ export class ListingChatService {
       body: m.body,
       bodyFa,
       bodyForBuyer,
-      sourceLang: m.sourceLang || detectChatLanguage(m.body),
+      sourceLang: m.sourceLang || detectChatLanguage(m.body || 'fa'),
       original: showOriginal ? m.body : null,
+      mediaUrl: m.mediaUrl || null,
+      mediaType: m.mediaType || null,
+      mediaMime: m.mediaMime || null,
       createdAt: m.createdAt,
     };
   }

@@ -9,6 +9,9 @@ export type WaChatMessage = {
   body: string;
   original?: string | null;
   sourceLang?: string | null;
+  mediaUrl?: string | null;
+  mediaType?: string | null;
+  mediaMime?: string | null;
   createdAt?: string;
 };
 
@@ -25,17 +28,15 @@ function formatTime(iso?: string) {
 function sideFor(role: string, mode: 'buyer' | 'staff') {
   const r = role.toUpperCase();
   if (r === 'SYSTEM') return 'system';
-  if (mode === 'buyer') {
-    return r === 'BUYER' ? 'out' : 'in';
-  }
-  // staff: buyer messages come in from left; our replies go out
-  return r === 'BUYER' ? 'in' : r === 'ASSISTANT' || r === 'SYSTEM' ? (r === 'SYSTEM' ? 'system' : 'in') : 'out';
+  if (mode === 'buyer') return r === 'BUYER' ? 'out' : 'in';
+  return r === 'BUYER' ? 'in' : r === 'ASSISTANT' ? 'in' : 'out';
 }
 
 export function WaChatThread({
   mode,
   title,
   subtitle,
+  avatarUrl,
   statusBadge,
   messages,
   roleLabel,
@@ -43,8 +44,10 @@ export function WaChatThread({
   value,
   onChange,
   onSubmit,
+  onPickMedia,
   placeholder,
   sendLabel,
+  attachLabel,
   busy,
   emptyLabel,
   error,
@@ -55,6 +58,7 @@ export function WaChatThread({
   mode: 'buyer' | 'staff';
   title: string;
   subtitle?: string;
+  avatarUrl?: string | null;
   statusBadge?: string | null;
   messages: WaChatMessage[];
   roleLabel: (role: string) => string;
@@ -62,8 +66,10 @@ export function WaChatThread({
   value: string;
   onChange: (v: string) => void;
   onSubmit: () => void;
+  onPickMedia?: (file: File) => void;
   placeholder: string;
   sendLabel: string;
+  attachLabel?: string;
   busy?: boolean;
   emptyLabel?: string;
   error?: string;
@@ -72,6 +78,8 @@ export function WaChatThread({
   topSlot?: ReactNode;
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length, messages[messages.length - 1]?.id]);
@@ -85,9 +93,14 @@ export function WaChatThread({
   return (
     <div className={`wa-chat wa-chat--${mode}`}>
       <header className="wa-chat__head">
-        <div className="wa-chat__avatar" aria-hidden>
-          {(title || '?').trim().slice(0, 1)}
-        </div>
+        {avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="wa-chat__avatar-img" src={avatarUrl} alt="" />
+        ) : (
+          <div className="wa-chat__avatar" aria-hidden>
+            {(title || '?').trim().slice(0, 1)}
+          </div>
+        )}
         <div className="wa-chat__head-main">
           <strong>{title}</strong>
           {subtitle ? <span>{subtitle}</span> : null}
@@ -102,10 +115,22 @@ export function WaChatThread({
         {!messages.length ? <p className="wa-chat__empty">{emptyLabel || '…'}</p> : null}
         {messages.map((m) => {
           const side = sideFor(m.senderRole, mode);
+          const mediaSrc = m.mediaUrl || '';
           return (
             <div key={m.id} className={`wa-bubble wa-bubble--${side} wa-bubble--${m.senderRole.toLowerCase()}`}>
               {side !== 'system' ? <span className="wa-bubble__name">{roleLabel(m.senderRole)}</span> : null}
-              <p className="wa-bubble__text">{m.text || m.body}</p>
+              {m.mediaType === 'IMAGE' && mediaSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img className="wa-bubble__media" src={mediaSrc} alt="" />
+              ) : null}
+              {m.mediaType === 'VIDEO' && mediaSrc ? (
+                <video className="wa-bubble__media" src={mediaSrc} controls playsInline preload="metadata" />
+              ) : null}
+              {(m.text || m.body) && !(m.mediaUrl && !(m.text || m.body).trim()) ? (
+                <p className="wa-bubble__text">{m.text || m.body}</p>
+              ) : m.mediaUrl ? null : (
+                <p className="wa-bubble__text">{m.text || m.body}</p>
+              )}
               {m.original ? (
                 <p className="wa-bubble__original">
                   <span>{originalLabel || 'Original'}</span>
@@ -122,6 +147,30 @@ export function WaChatThread({
       {error ? <p className="wa-chat__err">{error}</p> : null}
 
       <form className="wa-chat__composer" onSubmit={submit}>
+        {onPickMedia ? (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*,video/*"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (f) onPickMedia(f);
+              }}
+            />
+            <button
+              type="button"
+              className="wa-chat__attach"
+              aria-label={attachLabel || 'Attach'}
+              disabled={busy}
+              onClick={() => fileRef.current?.click()}
+            >
+              ＋
+            </button>
+          </>
+        ) : null}
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -136,7 +185,7 @@ export function WaChatThread({
           }}
         />
         <button type="submit" className="wa-chat__send" disabled={busy || !value.trim()} aria-label={sendLabel}>
-          ▶
+          ➤
         </button>
       </form>
       {footerHint ? <p className="wa-chat__hint">{footerHint}</p> : null}

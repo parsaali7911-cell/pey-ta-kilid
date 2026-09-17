@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   apiAuthed,
+  apiAuthedForm,
   clearTokens,
   fetchMe,
   getAccessToken,
@@ -77,6 +78,8 @@ type ChatMsg = {
   body: string;
   original?: string | null;
   sourceLang?: string | null;
+  mediaUrl?: string | null;
+  mediaType?: string | null;
   createdAt: string;
 };
 
@@ -469,8 +472,25 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
                     value={chatReply}
                     onChange={setChatReply}
                     onSubmit={() => void sendAdminChat()}
+                    onPickMedia={(file) => {
+                      if (!activeChatId) return;
+                      setBusyId(activeChatId);
+                      const form = new FormData();
+                      form.append('file', file);
+                      form.append('asRole', 'ADMIN');
+                      if (chatReply.trim()) form.append('caption', chatReply.trim());
+                      void apiAuthedForm<{ thread: ChatThreadView }>(`/chat/threads/${activeChatId}/media`, form)
+                        .then((res) => {
+                          setActiveChat(res.thread);
+                          setChatReply('');
+                          return load();
+                        })
+                        .catch((err) => setError(err instanceof Error ? err.message : 'Failed'))
+                        .finally(() => setBusyId(''));
+                    }}
                     placeholder={copy.admin_chat_reply}
                     sendLabel={copy.chat_send}
+                    attachLabel={copy.chat_attach}
                     busy={!!busyId}
                     emptyLabel={copy.chat_empty}
                     headerActions={

@@ -1001,6 +1001,8 @@ export default function SellerClient({
                             body: string;
                             original?: string | null;
                             sourceLang?: string | null;
+                            mediaUrl?: string | null;
+                            mediaType?: string | null;
                             createdAt?: string;
                           }>;
                         };
@@ -1016,8 +1018,41 @@ export default function SellerClient({
                         .catch((err) => setError(String(err.message || err)))
                         .finally(() => setBusy(false));
                     }}
+                    onPickMedia={(file) => {
+                      if (!activeChatId) return;
+                      setBusy(true);
+                      const form = new FormData();
+                      form.append('file', file);
+                      form.append('asRole', 'SELLER');
+                      if (chatReply.trim()) form.append('caption', chatReply.trim());
+                      void apiAuthedForm<{
+                        thread: {
+                          publicId: string;
+                          buyerLocale?: string | null;
+                          messages: Array<{
+                            id: string;
+                            senderRole: string;
+                            text?: string;
+                            body: string;
+                            original?: string | null;
+                            sourceLang?: string | null;
+                            mediaUrl?: string | null;
+                            mediaType?: string | null;
+                            createdAt?: string;
+                          }>;
+                        };
+                      }>(`/chat/threads/${activeChatId}/media`, form)
+                        .then((r) => {
+                          setActiveChat(r.thread);
+                          setChatReply('');
+                          if (orgId) void loadOrgData(orgId);
+                        })
+                        .catch((err) => setError(String(err.message || err)))
+                        .finally(() => setBusy(false));
+                    }}
                     placeholder={copy.seller_chat_reply}
                     sendLabel={copy.chat_send}
+                    attachLabel={copy.chat_attach}
                     busy={busy}
                     emptyLabel={copy.chat_empty}
                   />

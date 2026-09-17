@@ -8,8 +8,6 @@ import { WaChatThread, type WaChatMessage } from '@/components/commerce/WaChatTh
 
 type ChatMessage = WaChatMessage & {
   senderRole: 'BUYER' | 'SELLER' | 'ASSISTANT' | 'ADMIN' | 'SYSTEM';
-  bodyFa?: string | null;
-  bodyForBuyer?: string | null;
 };
 
 type ChatThread = {
@@ -18,7 +16,6 @@ type ChatThread = {
   guestName?: string | null;
   buyerLocale?: string | null;
   audience?: 'buyer' | 'staff';
-  bilingual?: boolean;
   escalationStatus?: 'NONE' | 'OPEN' | 'RESOLVED';
   listing: { id: string; slug: string; title: string; sellerName?: string | null };
   messages: ChatMessage[];
@@ -50,11 +47,15 @@ export function ListingChatPanel({
   copy,
   listingSlug,
   sellerName,
+  listingTitle,
+  listingImageUrl,
 }: {
   locale: Locale;
   copy: Record<string, string>;
   listingSlug: string;
   sellerName?: string | null;
+  listingTitle?: string | null;
+  listingImageUrl?: string | null;
 }) {
   const [guest, setGuest] = useState(loadGuest);
   const [thread, setThread] = useState<ChatThread | null>(null);
@@ -102,8 +103,6 @@ export function ListingChatPanel({
     if (t.guestToken) {
       const next = {
         ...guest,
-        name: guest.name,
-        phone: guest.phone,
         tokens: { ...guest.tokens, [listingSlug]: t.guestToken, [`${listingSlug}:id`]: t.publicId },
       };
       setGuest(next);
@@ -154,6 +153,45 @@ export function ListingChatPanel({
     }
   }
 
+  async function sendMedia(file: File) {
+    setBusy(true);
+    setError('');
+    try {
+      let current = thread;
+      if (!current) {
+        if (!getAccessToken() && guest.name.trim().length < 2) {
+          throw new Error(copy.chat_guest_name_required || 'نام لازم است');
+        }
+        current = await ensureThread();
+      }
+      const form = new FormData();
+      form.append('file', file);
+      form.append('locale', locale);
+      form.append('asRole', 'BUYER');
+      const gToken = current.guestToken || tokenForListing;
+      if (gToken) form.append('guestToken', gToken);
+      if (text.trim()) form.append('caption', text.trim());
+
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      const access = getAccessToken();
+      if (access) headers.Authorization = `Bearer ${access}`;
+
+      const res = await fetch(apiUrl(`/chat/threads/${current.publicId}/media`), {
+        method: 'POST',
+        headers,
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || copy.chat_failed || 'Failed');
+      setThread(data.thread as ChatThread);
+      setText('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : copy.chat_failed || 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onOpen() {
     setOpen(true);
     setError('');
@@ -171,11 +209,9 @@ export function ListingChatPanel({
           return;
         }
       }
-      if (getAccessToken()) {
-        await ensureThread();
-      }
+      if (getAccessToken()) await ensureThread();
     } catch {
-      /* first open can be empty */
+      /* empty */
     } finally {
       setBusy(false);
     }
@@ -192,10 +228,8 @@ export function ListingChatPanel({
 
   const hint =
     locale === 'fa'
-      ? copy.chat_hint ||
-        'اول دستیار جواب می‌دهد؛ در صورت نیاز ادمین وصل می‌شود. پیام غیر فارسی برای تیم ترجمه می‌شود.'
-      : copy.chat_hint_i18n ||
-        'Write in your language — the team reads Persian via translation; you see replies in your language.';
+      ? copy.chat_hint || 'می‌توانید عکس یا ویدیو هم بفرستید.'
+      : copy.chat_hint_i18n || 'You can also send photos or videos.';
 
   return (
     <div className="pk-chat">
@@ -206,8 +240,9 @@ export function ListingChatPanel({
       ) : (
         <WaChatThread
           mode="buyer"
-          title={sellerName || copy.chat_title || 'گفتگوی کالا'}
-          subtitle={copy.chat_title || 'گفتگوی کالا'}
+          title={listingTitle || sellerName || copy.chat_title || 'گفتگوی کالا'}
+          subtitle={sellerName ? `${copy.chat_with_seller || 'با'} ${sellerName}` : copy.chat_online || 'آنلاین'}
+          avatarUrl={listingImageUrl}
           statusBadge={
             thread?.escalationStatus === 'OPEN' ? copy.chat_escalated_badge || 'پشتیبانی' : copy.chat_online || 'آنلاین'
           }
@@ -216,8 +251,10 @@ export function ListingChatPanel({
           value={text}
           onChange={setText}
           onSubmit={() => void sendMessage()}
+          onPickMedia={(f) => void sendMedia(f)}
           placeholder={copy.chat_placeholder || 'پیام…'}
           sendLabel={copy.chat_send || 'ارسال'}
+          attachLabel={copy.chat_attach || 'عکس / ویدیو'}
           busy={busy}
           emptyLabel={copy.chat_empty || 'اولین پیام را بنویسید.'}
           error={error}

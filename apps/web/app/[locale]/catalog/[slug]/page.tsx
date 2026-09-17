@@ -258,6 +258,8 @@ export default async function ListingPage({
               copy={copy}
               listingSlug={listing.slug}
               sellerName={listing.organization?.name}
+              listingTitle={listing.title}
+              listingImageUrl={cover?.url || null}
             />
             <a className="mp-btn" href={`/${locale}/designer?listing=${encodeURIComponent(listing.slug)}`}>
               {copy.listing_try_design}

@@ -106,6 +106,7 @@ export default function DesignerClient({
   const [listingImageUrl, setListingImageUrl] = useState('');
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [catalogQ, setCatalogQ] = useState('');
+  const [catalogOpen, setCatalogOpen] = useState(!initialListingRef.trim());
   const [prompt, setPrompt] = useState('');
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
@@ -178,23 +179,30 @@ export default function DesignerClient({
       }
       setSession(token);
       await refreshStatus();
-      await loadCatalog();
+      // Only preload catalog picker when user did not arrive with a specific listing.
+      if (!initialListingRef.trim()) {
+        await loadCatalog();
+      }
     })();
-  }, [locale, loadCatalog, refreshStatus]);
+  }, [initialListingRef, locale, loadCatalog, refreshStatus]);
 
   useEffect(() => {
     if (!initialListingRef.trim()) return;
-    void bindListing(initialListingRef, { fillPrompt: true }).catch(() => {
-      /* ignore — user can pick from catalog */
-    });
-  }, [bindListing, initialListingRef]);
+    void bindListing(initialListingRef, { fillPrompt: true })
+      .then(() => setCatalogOpen(false))
+      .catch(() => {
+        setCatalogOpen(true);
+        void loadCatalog();
+      });
+  }, [bindListing, initialListingRef, loadCatalog]);
 
   useEffect(() => {
+    if (!catalogOpen) return;
     const t = setTimeout(() => {
       void loadCatalog(catalogQ);
     }, 280);
     return () => clearTimeout(t);
-  }, [catalogQ, loadCatalog]);
+  }, [catalogOpen, catalogQ, loadCatalog]);
 
   async function uploadSpace(file: File) {
     setError('');
@@ -348,83 +356,98 @@ export default function DesignerClient({
         ) : null}
 
         <div className="designer-catalog-field">
-          <strong>{copy.designer_pick_product}</strong>
-          <input
-            value={catalogQ}
-            onChange={(e) => setCatalogQ(e.target.value)}
-            placeholder={copy.designer_pick_product_ph}
-            disabled={busy}
-          />
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-              gap: '0.55rem',
-              marginTop: '0.65rem',
-            }}
-          >
-            {catalog.map((item) => {
-              const selected = listingSlug === item.slug || listingRef === item.slug;
-              return (
-                <button
-                  key={item.publicId}
-                  type="button"
-                  className="mp-btn"
-                  style={{
-                    display: 'grid',
-                    gap: '0.35rem',
-                    textAlign: 'start',
-                    padding: '0.45rem',
-                    borderColor: selected ? 'var(--sc-accent, #2a7)' : undefined,
-                    background: selected ? 'rgba(40,140,90,0.08)' : undefined,
-                  }}
-                  onClick={() => {
-                    void bindListing(item.slug, { fillPrompt: true });
-                  }}
-                  disabled={busy}
-                >
-                  {item.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.imageUrl}
-                      alt={item.title}
-                      style={{ width: '100%', height: 88, objectFit: 'cover', borderRadius: 8 }}
-                    />
-                  ) : (
-                    <div style={{ height: 88, borderRadius: 8, background: 'var(--sc-muted-bg, #eee)' }} />
-                  )}
-                  <span style={{ fontSize: '0.82rem', lineHeight: 1.3 }}>{item.title}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+          <strong>{copy.designer_step_product}</strong>
 
-        {(listingTitle || listingImageUrl) && (
-          <div
-            className="designer-catalog-field"
-            style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}
-          >
-            {listingImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={listingImageUrl}
-                alt={listingTitle}
-                style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 10 }}
-              />
-            ) : null}
-            <div>
-              <p className="pk-notice" style={{ margin: 0 }}>
-                {copy.designer_catalog_loaded.replace('{name}', listingTitle || listingRef)}
-              </p>
-              {listingSlug ? (
-                <a href={`/${locale}/catalog/${listingSlug}`} style={{ fontSize: '0.85rem' }}>
-                  {copy.designer_view_listing}
-                </a>
-              ) : null}
+          {(listingTitle || listingImageUrl) && !catalogOpen ? (
+            <div className="designer-selected-product" style={{ marginTop: '0.65rem' }}>
+              {listingImageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img className="designer-selected-product__img" src={listingImageUrl} alt={listingTitle} />
+              ) : (
+                <div className="designer-selected-product__img" />
+              )}
+              <div className="designer-selected-product__meta">
+                <strong>{listingTitle || listingRef}</strong>
+                <span className="panel-muted">{copy.designer_selected_only || 'محصول انتخاب‌شده برای طراحی'}</span>
+                <div className="designer-selected-product__actions">
+                  {listingSlug ? (
+                    <a className="mp-btn" href={`/${locale}/catalog/${listingSlug}`}>
+                      {copy.designer_view_listing}
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="mp-btn"
+                    onClick={() => {
+                      setCatalogOpen(true);
+                      void loadCatalog(catalogQ);
+                    }}
+                  >
+                    {copy.designer_change_product || 'تعویض محصول'}
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <>
+              <input
+                value={catalogQ}
+                onChange={(e) => setCatalogQ(e.target.value)}
+                placeholder={copy.designer_pick_product_ph}
+                disabled={busy}
+                style={{ marginTop: '0.5rem' }}
+              />
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                  gap: '0.55rem',
+                  marginTop: '0.65rem',
+                }}
+              >
+                {catalog.map((item) => {
+                  const selected = listingSlug === item.slug || listingRef === item.slug;
+                  return (
+                    <button
+                      key={item.publicId}
+                      type="button"
+                      className="mp-btn"
+                      style={{
+                        display: 'grid',
+                        gap: '0.35rem',
+                        textAlign: 'start',
+                        padding: '0.45rem',
+                        borderColor: selected ? 'var(--sc-teal, #2a6b5c)' : undefined,
+                        background: selected ? 'rgba(42,107,92,0.08)' : undefined,
+                      }}
+                      onClick={() => {
+                        void bindListing(item.slug, { fillPrompt: true }).then(() => setCatalogOpen(false));
+                      }}
+                      disabled={busy}
+                    >
+                      {item.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={item.imageUrl}
+                          alt={item.title}
+                          style={{ width: '100%', height: 88, objectFit: 'cover', borderRadius: 8 }}
+                        />
+                      ) : (
+                        <div style={{ height: 88, borderRadius: 8, background: 'var(--sc-surface-2, #eee)' }} />
+                      )}
+                      <span style={{ fontSize: '0.82rem', lineHeight: 1.3 }}>{item.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {(listingTitle || listingSlug) && (
+                <button type="button" className="mp-btn" style={{ marginTop: '0.65rem' }} onClick={() => setCatalogOpen(false)}>
+                  {copy.designer_use_selected || 'ادامه با همین محصول'}
+                </button>
+              )}
+            </>
+          )}
+        </div>
 
         <label>
           {copy.designer_prompt}

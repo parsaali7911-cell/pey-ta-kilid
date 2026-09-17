@@ -1,5 +1,19 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 import { ListingChatService } from './listing-chat.service';
@@ -108,6 +122,46 @@ export class ListingChatController {
       guestToken: dto.guestToken,
       body: dto.body,
       locale: dto.locale,
+    });
+  }
+
+  @UseGuards(OptionalJwtAuthGuard)
+  @Post('threads/:publicId/media')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 40 * 1024 * 1024 },
+    }),
+  )
+  sendMedia(
+    @Req() req: { user?: { userId: string } },
+    @Param('publicId') publicId: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body('guestToken') guestToken?: string,
+    @Body('locale') locale?: string,
+    @Body('caption') caption?: string,
+    @Body('asRole') asRole?: string,
+  ) {
+    if (!file?.buffer?.length) throw new BadRequestException('file required');
+    const roleRaw = (asRole || 'BUYER').toUpperCase();
+    const role =
+      roleRaw === 'SELLER' || roleRaw === 'ADMIN' ? (roleRaw as 'SELLER' | 'ADMIN') : 'BUYER';
+    if ((role === 'SELLER' || role === 'ADMIN') && !req.user?.userId) {
+      throw new BadRequestException('Auth required for staff media');
+    }
+    return this.chat.appendMediaMessage({
+      threadPublicId: publicId,
+      userId: req.user?.userId,
+      guestToken,
+      role,
+      caption,
+      locale,
+      file: {
+        buffer: file.buffer,
+        mimetype: file.mimetype,
+        originalname: file.originalname,
+        size: file.size,
+      },
     });
   }
 
