@@ -21,6 +21,11 @@ class GenerateDto {
   @IsString()
   listingRef!: string;
 
+  /** Optional phone/gallery product photo (from POST /designer/upload/listing). */
+  @IsOptional()
+  @IsString()
+  productMediaPublicId?: string;
+
   @IsString()
   @MinLength(8)
   prompt!: string;

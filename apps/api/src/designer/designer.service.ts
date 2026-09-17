@@ -167,6 +167,8 @@ export class DesignerService {
   async generate(input: {
     spaceMediaPublicId: string;
     listingRef: string;
+    /** Phone/gallery product photo overrides catalog listing media when set. */
+    productMediaPublicId?: string;
     prompt: string;
     locale?: string;
   }) {
@@ -196,10 +198,22 @@ export class DesignerService {
     jobs.set(publicId, job);
 
     try {
-      const productImageRef = resolveListingProductImage(listing.media[0]);
+      let productImageRef: string | null = null;
+      let productSource: 'phone' | 'catalog' = 'catalog';
+      const uploadedProductId = (input.productMediaPublicId || '').trim();
+      if (uploadedProductId) {
+        const productMeta = mediaMeta.get(uploadedProductId);
+        if (!productMeta || productMeta.kind !== 'listing') {
+          throw new BadRequestException('Unknown product media upload');
+        }
+        productImageRef = productMeta.path;
+        productSource = 'phone';
+      } else {
+        productImageRef = resolveListingProductImage(listing.media[0]);
+      }
       if (!productImageRef) {
         throw new BadRequestException(
-          'This listing has no product photo. Upload a clear product image first so design can preserve material identity.',
+          'No product photo. Pick a catalog listing with a photo, or upload a clear product image from your phone.',
         );
       }
 
@@ -238,10 +252,16 @@ export class DesignerService {
       job.resultImageUrl = `/api/uploads/designer/results/${resultFile}`;
       job.resultNote =
         input.locale === 'en'
-          ? `Visualization of “${listing.title}” using the listing’s real product photo.`
+          ? productSource === 'phone'
+            ? `Visualization of “${listing.title}” using your uploaded product photo.`
+            : `Visualization of “${listing.title}” using the listing’s real product photo.`
           : input.locale === 'ar'
-            ? `تصور لـ«${listing.title}» اعتماداً على صورة المنتج الحقيقية.`
-            : `نمایش «${listing.title}» با حفظ ظاهر واقعی عکس کالا.`;
+            ? productSource === 'phone'
+              ? `تصور لـ«${listing.title}» اعتماداً على صورة المنتج التي رفعتها.`
+              : `تصور لـ«${listing.title}» اعتماداً على صورة المنتج الحقيقية.`
+            : productSource === 'phone'
+              ? `نمایش «${listing.title}» با عکس کالایی که از گوشی بارگذاری کردید.`
+              : `نمایش «${listing.title}» با حفظ ظاهر واقعی عکس کالا.`;
     } catch (e) {
       const code = (e as { code?: string; response?: { code?: string } })?.code;
       const responseCode = (e as { response?: { code?: string } })?.response?.code;

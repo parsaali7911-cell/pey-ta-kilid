@@ -104,16 +104,23 @@ export default function DesignerClient({
   const [listingTitle, setListingTitle] = useState('');
   const [listingSlug, setListingSlug] = useState('');
   const [listingImageUrl, setListingImageUrl] = useState('');
+  const [productMediaId, setProductMediaId] = useState('');
+  const [productPreviewUrl, setProductPreviewUrl] = useState('');
+  const [productPhotoSource, setProductPhotoSource] = useState<'catalog' | 'phone'>('catalog');
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [catalogQ, setCatalogQ] = useState('');
   const [catalogOpen, setCatalogOpen] = useState(!initialListingRef.trim());
   const [prompt, setPrompt] = useState('');
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState<'space' | 'product' | false>(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const promptTouched = useRef(false);
+  const spaceFileRef = useRef<HTMLInputElement>(null);
+  const spaceCameraRef = useRef<HTMLInputElement>(null);
+  const productFileRef = useRef<HTMLInputElement>(null);
+  const productCameraRef = useRef<HTMLInputElement>(null);
   const sessionRef = useRef('');
   sessionRef.current = session;
 
@@ -204,20 +211,27 @@ export default function DesignerClient({
     return () => clearTimeout(t);
   }, [catalogOpen, catalogQ, loadCatalog]);
 
-  async function uploadSpace(file: File) {
+  async function uploadKind(kind: 'space' | 'listing', file: File) {
     setError('');
     setMsg('');
-    setUploading(true);
+    setUploading(kind === 'space' ? 'space' : 'product');
     try {
       const prepared = await prepareImageForUpload(file);
       const localUrl = URL.createObjectURL(prepared);
-      setSpacePreviewUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return localUrl;
-      });
+      if (kind === 'space') {
+        setSpacePreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return localUrl;
+        });
+      } else {
+        setProductPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return localUrl;
+        });
+      }
       const fd = new FormData();
       fd.append('file', prepared);
-      const res = await fetch(apiUrl(`/designer/upload/space?locale=${locale}`), {
+      const res = await fetch(apiUrl(`/designer/upload/${kind}?locale=${locale}`), {
         method: 'POST',
         body: fd,
       });
@@ -230,8 +244,14 @@ export default function DesignerClient({
         }
         return;
       }
-      setSpaceId(data.publicId);
-      setMsg(copy.designer_space_uploaded);
+      if (kind === 'space') {
+        setSpaceId(data.publicId);
+        setMsg(copy.designer_space_uploaded);
+      } else {
+        setProductMediaId(data.publicId);
+        setProductPhotoSource('phone');
+        setMsg(copy.designer_product_uploaded || 'عکس کالا از گوشی بارگذاری شد');
+      }
       await refreshStatus();
     } catch (err) {
       if (err instanceof Error && err.message === 'HEIC_NOT_SUPPORTED') {
@@ -242,6 +262,15 @@ export default function DesignerClient({
     } finally {
       setUploading(false);
     }
+  }
+
+  function clearPhoneProductPhoto() {
+    setProductMediaId('');
+    setProductPhotoSource('catalog');
+    setProductPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return '';
+    });
   }
 
   async function onGenerate(e: FormEvent) {
@@ -260,6 +289,7 @@ export default function DesignerClient({
         body: JSON.stringify({
           spaceMediaPublicId: spaceId,
           listingRef: listingRef.trim(),
+          productMediaPublicId: productMediaId.trim() || undefined,
           prompt,
           locale,
         }),
@@ -289,8 +319,15 @@ export default function DesignerClient({
   }
 
   const providerReady = status?.imageEditConfigured;
+  const productReady = Boolean((listingSlug || listingTitle) && (productMediaId || listingImageUrl));
   const canGenerate = Boolean(
-    spaceId && listingRef.trim() && prompt.trim().length >= 8 && status?.enabled && !busy && !uploading,
+    spaceId &&
+      listingRef.trim() &&
+      productReady &&
+      prompt.trim().length >= 8 &&
+      status?.enabled &&
+      !busy &&
+      !uploading,
   );
 
   const steps = useMemo(
@@ -301,6 +338,8 @@ export default function DesignerClient({
     ],
     [copy.designer_step_product, copy.designer_step_prompt, copy.designer_step_space, listingSlug, listingTitle, prompt, spaceId],
   );
+
+  const activeProductPreview = productPhotoSource === 'phone' && productPreviewUrl ? productPreviewUrl : listingImageUrl;
 
   return (
     <div className="designer-grid public-workspace">
@@ -328,21 +367,57 @@ export default function DesignerClient({
       </ol>
 
       <form className="form designer-form" onSubmit={onGenerate}>
-        <label>
-          {copy.designer_space}
+        <div className="designer-catalog-field">
+          <strong>{copy.designer_space}</strong>
+          <p className="panel-muted" style={{ margin: '0.35rem 0 0.55rem', fontSize: '0.85rem' }}>
+            {copy.designer_space_hint || 'عکس فضا را از گالری یا دوربین گوشی بفرستید.'}
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <button
+              type="button"
+              className="mp-btn"
+              disabled={!session || Boolean(uploading) || busy}
+              onClick={() => spaceFileRef.current?.click()}
+            >
+              {copy.designer_from_gallery || 'از گالری گوشی'}
+            </button>
+            <button
+              type="button"
+              className="mp-btn"
+              disabled={!session || Boolean(uploading) || busy}
+              onClick={() => spaceCameraRef.current?.click()}
+            >
+              {copy.designer_from_camera || 'دوربین'}
+            </button>
+          </div>
           <input
+            ref={spaceFileRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp"
-            disabled={!session || uploading || busy}
+            accept="image/jpeg,image/png,image/webp,image/*"
+            style={{ display: 'none' }}
+            disabled={!session || Boolean(uploading) || busy}
             onChange={(e) => {
               const f = e.target.files?.[0];
               e.target.value = '';
-              if (f) void uploadSpace(f);
+              if (f) void uploadKind('space', f);
             }}
           />
-          {uploading ? <small>{copy.designer_uploading}</small> : null}
-          {spaceId && !uploading ? <small className="ok-mark">{copy.designer_uploaded}</small> : null}
-        </label>
+          <input
+            ref={spaceCameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{ display: 'none' }}
+            disabled={!session || Boolean(uploading) || busy}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void uploadKind('space', f);
+            }}
+          />
+          {uploading === 'space' ? <small>{copy.designer_uploading}</small> : null}
+          {spaceId && uploading !== 'space' ? <small className="ok-mark">{copy.designer_uploaded}</small> : null}
+        </div>
 
         {spacePreviewUrl ? (
           <div className="designer-catalog-field">
@@ -357,18 +432,94 @@ export default function DesignerClient({
 
         <div className="designer-catalog-field">
           <strong>{copy.designer_step_product}</strong>
+          <p className="panel-muted" style={{ margin: '0.35rem 0 0.55rem', fontSize: '0.85rem' }}>
+            {copy.designer_product_photo_hint ||
+              'عکس کالا را از کاتالوگ بگیرید یا خودتان از گوشی آپلود کنید.'}
+          </p>
 
-          {(listingTitle || listingImageUrl) && !catalogOpen ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.65rem' }}>
+            <button
+              type="button"
+              className="mp-btn"
+              style={{
+                borderColor: productPhotoSource === 'catalog' ? 'var(--sc-teal, #2a6b5c)' : undefined,
+                background: productPhotoSource === 'catalog' ? 'rgba(42,107,92,0.1)' : undefined,
+              }}
+              disabled={busy}
+              onClick={() => {
+                clearPhoneProductPhoto();
+                setCatalogOpen(true);
+                void loadCatalog(catalogQ);
+              }}
+            >
+              {copy.designer_product_from_catalog || 'عکس از کاتالوگ کالا'}
+            </button>
+            <button
+              type="button"
+              className="mp-btn"
+              style={{
+                borderColor: productPhotoSource === 'phone' ? 'var(--sc-teal, #2a6b5c)' : undefined,
+                background: productPhotoSource === 'phone' ? 'rgba(42,107,92,0.1)' : undefined,
+              }}
+              disabled={!session || Boolean(uploading) || busy}
+              onClick={() => productFileRef.current?.click()}
+            >
+              {copy.designer_product_from_phone || 'آپلود عکس کالا از گوشی'}
+            </button>
+            <button
+              type="button"
+              className="mp-btn"
+              disabled={!session || Boolean(uploading) || busy}
+              onClick={() => productCameraRef.current?.click()}
+            >
+              {copy.designer_from_camera || 'دوربین'}
+            </button>
+          </div>
+          <input
+            ref={productFileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/*"
+            style={{ display: 'none' }}
+            disabled={!session || Boolean(uploading) || busy}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void uploadKind('listing', f);
+            }}
+          />
+          <input
+            ref={productCameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{ display: 'none' }}
+            disabled={!session || Boolean(uploading) || busy}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void uploadKind('listing', f);
+            }}
+          />
+          {uploading === 'product' ? <small>{copy.designer_uploading}</small> : null}
+          {productMediaId && uploading !== 'product' ? (
+            <small className="ok-mark">{copy.designer_product_uploaded || 'عکس کالا بارگذاری شد'}</small>
+          ) : null}
+
+          {(listingTitle || activeProductPreview) && !catalogOpen ? (
             <div className="designer-selected-product" style={{ marginTop: '0.65rem' }}>
-              {listingImageUrl ? (
+              {activeProductPreview ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img className="designer-selected-product__img" src={listingImageUrl} alt={listingTitle} />
+                <img className="designer-selected-product__img" src={activeProductPreview} alt={listingTitle} />
               ) : (
                 <div className="designer-selected-product__img" />
               )}
               <div className="designer-selected-product__meta">
                 <strong>{listingTitle || listingRef}</strong>
-                <span className="panel-muted">{copy.designer_selected_only || 'محصول انتخاب‌شده برای طراحی'}</span>
+                <span className="panel-muted">
+                  {productPhotoSource === 'phone' && productMediaId
+                    ? copy.designer_using_phone_product || 'در حال استفاده از عکس آپلودشده از گوشی'
+                    : copy.designer_selected_only || 'محصول انتخاب‌شده برای طراحی'}
+                </span>
                 <div className="designer-selected-product__actions">
                   {listingSlug ? (
                     <a className="mp-btn" href={`/${locale}/catalog/${listingSlug}`}>
@@ -385,6 +536,11 @@ export default function DesignerClient({
                   >
                     {copy.designer_change_product || 'تعویض محصول'}
                   </button>
+                  {productMediaId ? (
+                    <button type="button" className="mp-btn" onClick={clearPhoneProductPhoto}>
+                      {copy.designer_use_catalog_photo || 'استفاده از عکس کاتالوگ'}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -421,7 +577,10 @@ export default function DesignerClient({
                         background: selected ? 'rgba(42,107,92,0.08)' : undefined,
                       }}
                       onClick={() => {
-                        void bindListing(item.slug, { fillPrompt: true }).then(() => setCatalogOpen(false));
+                        void bindListing(item.slug, { fillPrompt: true }).then(() => {
+                          setCatalogOpen(false);
+                          if (!productMediaId) setProductPhotoSource('catalog');
+                        });
                       }}
                       disabled={busy}
                     >
