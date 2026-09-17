@@ -158,3 +158,81 @@
   backdrop-filter: none !important;
   color: #2b2f33 !important;
 }
+
+/* Listing product chat */
+.pk-chat { width: 100%; }
+.pk-chat__open { width: 100%; justify-content: center; }
+.pk-chat__panel {
+  background: #fff;
+  border: 1px solid rgba(23, 23, 21, 0.12);
+  border-radius: 14px;
+  overflow: hidden;
+  display: grid;
+}
+.pk-chat__head {
+  padding: 0.85rem 1rem;
+  background: linear-gradient(135deg, #2b2f33, #3d4450);
+  color: #fff;
+  display: grid;
+  gap: 0.15rem;
+}
+.pk-chat__sub { opacity: 0.8; font-size: 0.82rem; }
+.pk-chat__guest {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(23, 23, 21, 0.08);
+  background: #faf9f7;
+}
+.pk-chat__guest label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.pk-chat__guest input,
+.pk-chat__form textarea {
+  border: 1px solid rgba(23, 23, 21, 0.14);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  width: 100%;
+}
+.pk-chat__msgs {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.55rem;
+  background: #f7f6f4;
+}
+.pk-chat__empty { margin: 0; color: #6b6560; font-size: 0.9rem; }
+.pk-chat__bubble {
+  background: #fff;
+  border: 1px solid rgba(23, 23, 21, 0.08);
+  border-radius: 12px;
+  padding: 0.55rem 0.7rem;
+}
+.pk-chat__bubble p { margin: 0.2rem 0 0; white-space: pre-wrap; font-size: 0.92rem; line-height: 1.45; }
+.pk-chat__role { font-size: 0.72rem; font-weight: 700; color: #6b6560; }
+.pk-chat__bubble--buyer { border-color: rgba(47, 111, 191, 0.25); background: #f3f8ff; }
+.pk-chat__bubble--seller { border-color: rgba(240, 194, 26, 0.45); background: #fffbeb; }
+.pk-chat__bubble--assistant { border-color: rgba(42, 107, 92, 0.25); background: #f2faf7; }
+.pk-chat__form {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+.pk-chat__err { color: #9b3b3b; margin: 0 0.75rem 0.5rem; font-size: 0.85rem; }
+.pk-chat__hint { margin: 0 0.75rem 0.85rem; color: #6b6560; font-size: 0.78rem; line-height: 1.4; }
+.seller-chat-list { display: grid; gap: 0.65rem; }
+.seller-chat-item {
+  border: 1px solid rgba(23, 23, 21, 0.1);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  background: #fff;
+  cursor: pointer;
+  text-align: start;
+  font: inherit;
+}
+.seller-chat-item.is-active { outline: 2px solid #2a6b5c; }

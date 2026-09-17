@@ -21,6 +21,7 @@ import { SeoModule } from './seo/seo.module';
 import { DesignerModule } from './designer/designer.module';
 import { ProfessionalLeadsModule } from './professionals/professional-leads.module';
 import { ProjectModule } from './projects/project.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { ProjectModule } from './projects/project.module';
     DesignerModule,
     ProfessionalLeadsModule,
     ProjectModule,
+    ChatModule,
     RfqModule,
     QuoteModule,
     CommerceModule,

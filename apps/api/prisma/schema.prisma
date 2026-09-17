@@ -241,6 +241,13 @@ enum ProjectLeadTimeSource {
   MANUAL_ESTIMATE
 }
 
+enum ChatSenderRole {
+  BUYER
+  SELLER
+  ASSISTANT
+  SYSTEM
+}
+
 model User {
   id           String       @id @default(cuid())
   email        String       @unique
@@ -260,6 +267,8 @@ model User {
   professionalReviews ProfessionalReview[] @relation("ProReviewAuthor")
   ownedProjects Project[] @relation("ProjectCreatedBy")
   projectMemberships ProjectMember[]
+  listingChatThreads ListingChatThread[] @relation("ChatBuyerUser")
+  listingChatMessages ListingChatMessage[] @relation("ChatMessageSender")
 }
 
 model Organization {
@@ -296,6 +305,7 @@ model Organization {
   buyerOrders  Order[] @relation("OrderBuyerOrg")
   sellerOrders Order[] @relation("OrderSellerOrg")
   projects     Project[]
+  listingChatThreads ListingChatThread[] @relation("ChatSellerOrg")
 
   @@index([isProfessional, isActive])
   @@index([primarySpecialty])
@@ -459,6 +469,7 @@ model Listing {
   quoteItems   QuoteItem[]
   orderItems   OrderItem[]
   projectRequirements ProjectRequirement[]
+  chatThreads ListingChatThread[]
 
   @@index([organizationId])
   @@index([categoryId, status])
@@ -1364,3 +1375,41 @@ model ProjectRequirement {
   @@index([categoryId])
 }
 
+
+model ListingChatThread {
+  id                   String    @id @default(cuid())
+  publicId             String    @unique @default(cuid())
+  listingId            String
+  sellerOrganizationId String
+  buyerUserId          String?
+  guestName            String?
+  guestPhone           String?
+  /// Opaque token so guests can resume the same thread without login.
+  guestToken           String?   @unique
+  lastMessageAt        DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  listing            Listing              @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  sellerOrganization Organization         @relation("ChatSellerOrg", fields: [sellerOrganizationId], references: [id], onDelete: Cascade)
+  buyerUser          User?                @relation("ChatBuyerUser", fields: [buyerUserId], references: [id], onDelete: SetNull)
+  messages           ListingChatMessage[]
+
+  @@index([listingId, lastMessageAt])
+  @@index([sellerOrganizationId, lastMessageAt])
+  @@index([buyerUserId])
+}
+
+model ListingChatMessage {
+  id           String         @id @default(cuid())
+  threadId     String
+  senderRole   ChatSenderRole
+  senderUserId String?
+  body         String
+  createdAt    DateTime       @default(now())
+
+  thread     ListingChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderUser User?             @relation("ChatMessageSender", fields: [senderUserId], references: [id], onDelete: SetNull)
+
+  @@index([threadId, createdAt])
+}

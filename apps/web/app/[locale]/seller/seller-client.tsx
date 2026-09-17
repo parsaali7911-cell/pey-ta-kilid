@@ -133,13 +133,14 @@ export default function SellerClient({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'overview' | 'facility' | 'listing' | 'commerce' | 'pro'>(
+  const [tab, setTab] = useState<'overview' | 'facility' | 'listing' | 'commerce' | 'pro' | 'chat'>(
     initialTab === 'facility' ||
       initialTab === 'listing' ||
       initialTab === 'commerce' ||
       initialTab === 'overview' ||
-      initialTab === 'pro'
-      ? initialTab
+      initialTab === 'pro' ||
+      initialTab === 'chat'
+      ? (initialTab as 'overview' | 'facility' | 'listing' | 'commerce' | 'pro' | 'chat')
       : openWizard
         ? 'listing'
         : 'overview',
@@ -185,6 +186,21 @@ export default function SellerClient({
   const [proSpecialty, setProSpecialty] = useState('installation');
   const [areaCity, setAreaCity] = useState(initialCity || 'Tehran');
   const [areaRadius, setAreaRadius] = useState('40');
+  const [chatThreads, setChatThreads] = useState<
+    Array<{
+      publicId: string;
+      listing?: { title?: string; slug?: string };
+      guestName?: string | null;
+      preview?: string | null;
+      messageCount?: number;
+    }>
+  >([]);
+  const [activeChatId, setActiveChatId] = useState('');
+  const [activeChat, setActiveChat] = useState<{
+    publicId: string;
+    messages: Array<{ id: string; senderRole: string; body: string }>;
+  } | null>(null);
+  const [chatReply, setChatReply] = useState('');
   const refresh = useCallback(async () => {
     if (!getAccessToken()) {
       const qs = new URLSearchParams();
@@ -218,7 +234,7 @@ export default function SellerClient({
   const loadOrgData = useCallback(
     async (id: string) => {
       if (!id) return;
-      const [facs, lists, elig, ords, areas, leads] = await Promise.all([
+      const [facs, lists, elig, ords, areas, leads, chats] = await Promise.all([
         apiAuthed<Facility[]>(`/seller/facilities?organizationId=${encodeURIComponent(id)}`),
         apiAuthed<Listing[]>(`/seller/listings?organizationId=${encodeURIComponent(id)}`),
         apiAuthed<typeof eligible>(`/seller/rfqs/eligible?organizationId=${encodeURIComponent(id)}`).catch(
@@ -233,6 +249,9 @@ export default function SellerClient({
         apiAuthed<ProLead[]>(
           `/seller/professional-leads?organizationId=${encodeURIComponent(id)}`,
         ).catch(() => []),
+        apiAuthed<typeof chatThreads>(`/chat/seller/threads?organizationId=${encodeURIComponent(id)}`).catch(
+          () => [],
+        ),
       ]);
       setFacilities(facs || []);
       setListings(lists || []);
@@ -240,6 +259,7 @@ export default function SellerClient({
       setSellerOrders(ords || []);
       setServiceAreas(areas || []);
       setProLeads(leads || []);
+      setChatThreads(chats || []);
     },
     [],
   );
@@ -572,6 +592,9 @@ export default function SellerClient({
           <button type="button" className={tab === 'commerce' ? 'is-active' : ''} onClick={() => setTab('commerce')}>
             {copy.seller_tab_commerce}
           </button>
+          <button type="button" className={tab === 'chat' ? 'is-active' : ''} onClick={() => setTab('chat')}>
+            {copy.seller_tab_chat}
+          </button>
           {activeOrg?.isProfessional ? (
             <button type="button" className={tab === 'pro' ? 'is-active' : ''} onClick={() => setTab('pro')}>
               {copy.seller_tab_pro}
@@ -886,6 +909,84 @@ export default function SellerClient({
               ))}
             </ul>
             {!sellerOrders.length ? <p className="panel-muted">{copy.seller_no_orders}</p> : null}
+          </section>
+        ) : null}
+
+        {tab === 'chat' ? (
+          <section className="panel-card">
+            <h2>{copy.seller_tab_chat}</h2>
+            {!orgId ? <p className="panel-muted">{copy.seller_need_org}</p> : null}
+            <div className="seller-chat-list">
+              {chatThreads.map((t) => (
+                <button
+                  key={t.publicId}
+                  type="button"
+                  className={`seller-chat-item${activeChatId === t.publicId ? ' is-active' : ''}`}
+                  onClick={() => {
+                    setActiveChatId(t.publicId);
+                    void apiAuthed<{
+                      publicId: string;
+                      messages: Array<{ id: string; senderRole: string; body: string }>;
+                    }>(`/chat/threads/${t.publicId}`)
+                      .then((th) => setActiveChat(th))
+                      .catch((e) => setError(String(e.message || e)));
+                  }}
+                >
+                  <strong>{t.listing?.title || t.publicId}</strong>
+                  <div className="panel-muted">
+                    {t.guestName || 'Buyer'} · {t.messageCount || 0} · {t.preview || ''}
+                  </div>
+                </button>
+              ))}
+            </div>
+            {!chatThreads.length ? <p className="panel-muted">{copy.seller_chat_empty}</p> : null}
+
+            {activeChat ? (
+              <div className="pk-chat__panel" style={{ marginTop: '1rem' }}>
+                <div className="pk-chat__msgs">
+                  {activeChat.messages.map((m) => (
+                    <div key={m.id} className={`pk-chat__bubble pk-chat__bubble--${m.senderRole.toLowerCase()}`}>
+                      <span className="pk-chat__role">{m.senderRole}</span>
+                      <p>{m.body}</p>
+                    </div>
+                  ))}
+                </div>
+                <form
+                  className="pk-chat__form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!chatReply.trim() || !activeChatId) return;
+                    setBusy(true);
+                    void apiAuthed<{
+                      thread: {
+                        publicId: string;
+                        messages: Array<{ id: string; senderRole: string; body: string }>;
+                      };
+                    }>(`/chat/threads/${activeChatId}/seller-messages`, {
+                      method: 'POST',
+                      json: { body: chatReply.trim() },
+                    })
+                      .then((r) => {
+                        setActiveChat(r.thread);
+                        setChatReply('');
+                        if (orgId) void loadOrgData(orgId);
+                      })
+                      .catch((err) => setError(String(err.message || err)))
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  <textarea
+                    value={chatReply}
+                    onChange={(e) => setChatReply(e.target.value)}
+                    rows={2}
+                    placeholder={copy.seller_chat_reply}
+                  />
+                  <button className="mp-btn mp-btn--primary" type="submit" disabled={busy || !chatReply.trim()}>
+                    {copy.chat_send}
+                  </button>
+                </form>
+              </div>
+            ) : null}
           </section>
         ) : null}
 

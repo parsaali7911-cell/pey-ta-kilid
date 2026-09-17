@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { LocaleAlternatesBar } from '@/components/LocaleAlternatesBar';
 import { RequestQuoteButton } from '@/components/commerce/RequestQuoteButton';
+import { ListingChatPanel } from '@/components/commerce/ListingChatPanel';
 import { PublicPageShell } from '@/components/PublicPageShell';
 import { apiGet } from '@/lib/api';
 import { formatMoney, formatQty } from '@/lib/format';
@@ -251,6 +252,12 @@ export default async function ListingPage({
               listingTitle={listing.title}
               uomCode={listing.uomCode}
               defaultQty={listing.moq != null ? Number(listing.moq) : 1}
+            />
+            <ListingChatPanel
+              locale={locale}
+              copy={copy}
+              listingSlug={listing.slug}
+              sellerName={listing.organization?.name}
             />
             <a className="mp-btn" href={`/${locale}/designer?listing=${encodeURIComponent(listing.slug)}`}>
               {copy.listing_try_design}
