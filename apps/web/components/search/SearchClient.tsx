@@ -204,7 +204,8 @@ export function SearchClient({
       }
 
       if (data.next === 'professional_onboard') {
-        const qs = new URLSearchParams({ onboard: '1' });
+        // Self-identify as a trade ("برق‌کار هستم") → professionals page with onboard + directory.
+        const qs = new URLSearchParams({ onboard: '1', find: '1' });
         if (specialty) qs.set('specialty', specialty);
         if (city) qs.set('city', city);
         else if (province) qs.set('city', province);
@@ -212,7 +213,8 @@ export function SearchClient({
         setDeepLink(href);
         setIntentInfo(copy.search_intent_pro_onboard);
         setHits([]);
-        router.push(href);
+        // Hard navigate so tunnel / in-app browsers don't drop client routing.
+        window.location.assign(href);
         return;
       }
 
@@ -230,6 +232,7 @@ export function SearchClient({
         );
         setHits([]);
         await loadPros(city || province, specialty);
+        window.location.assign(href);
         return;
       }
 
@@ -246,8 +249,23 @@ export function SearchClient({
       if (data.searchQuery) {
         sessionStorage.setItem(SEARCH_QUERY_STORAGE_KEY, JSON.stringify(data.searchQuery));
         setIntentInfo(copy.search_intent_product);
-        await runSearch(data.searchQuery);
-        if (city) await loadPros(city, specialty || undefined);
+        const result = await runSearch(data.searchQuery);
+        const relatedSpecialty =
+          specialty || categorySlugToSpecialty(categorySlug) || undefined;
+        // Always surface related pros for the trade (esp. when catalog is empty in that city).
+        await loadPros(city || province || undefined, relatedSpecialty);
+        if (result === 0 && categorySlug) {
+          setIntentInfo(
+            [
+              copy.search_intent_product,
+              copy.search_empty_category_hint,
+              city ? `${copy.seller_city}: ${city}` : null,
+              categorySlug,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+          );
+        }
       } else {
         setHits([]);
       }
@@ -258,18 +276,40 @@ export function SearchClient({
     }
   }
 
-  async function runSearch(query: SearchQuery) {
+  async function runSearch(query: SearchQuery): Promise<number> {
     setBusy(true);
     setError(null);
     try {
       const data = await apiPostClient<RankedRecommendation>('/search', query);
-      setHits(data.hits || []);
+      const list = data.hits || [];
+      setHits(list);
       setPreferCheapest(Boolean(query.filters?.preferCheapest || query.requirements?.preferCheapest));
+      return list.length;
     } catch {
       setError(copy.no_results);
+      return 0;
     } finally {
       setBusy(false);
     }
+  }
+
+  function categorySlugToSpecialty(slug?: string | null): string | null {
+    if (!slug) return null;
+    const map: Record<string, string> = {
+      cabinets: 'cabinet_making',
+      'ceramic-tile': 'tile_installation',
+      'porcelain-tile': 'tile_installation',
+      'wall-tile': 'tile_installation',
+      'natural-stone': 'stone_installation',
+      'electrical-supplies': 'electrical',
+      'paint-coatings': 'painting',
+      'gypsum-plaster': 'plastering',
+      doors: 'carpentry',
+      windows: 'upvc_install',
+      'pipes-fittings': 'plumbing',
+      lighting: 'electrical',
+    };
+    return map[slug] || null;
   }
 
   return (
@@ -334,7 +374,14 @@ export function SearchClient({
       ) : null}
 
       {!busy && hits.length === 0 && (needText || photo) && !clarify && intentNext === 'search' ? (
-        <div className="pk-empty">{copy.no_results}</div>
+        <div className="pk-empty">
+          <p>{copy.search_empty_category_hint || copy.no_results}</p>
+          <p style={{ marginTop: '0.75rem' }}>
+            <a className="mp-btn mp-btn--primary" href={`/${ui}/professionals?find=1`}>
+              {copy.search_go_professionals}
+            </a>
+          </p>
+        </div>
       ) : null}
 
       {hits.length > 0 ? (
@@ -396,7 +443,10 @@ export function SearchClient({
               </li>
             ))}
           </ul>
-          <a className="mp-btn" href={`/${ui}/professionals?find=1`}>
+          <a
+            className="mp-btn"
+            href={`/${ui}/professionals?find=1${pros[0]?.specialty ? `&specialty=${encodeURIComponent(pros[0].specialty)}` : ''}`}
+          >
             {copy.search_go_professionals}
           </a>
         </section>
