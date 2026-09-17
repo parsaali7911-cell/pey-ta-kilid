@@ -76,9 +76,8 @@ function slugify(input: string) {
 }
 
 /**
- * Amazon-inspired listing wizard for factories:
- * search/browse category → product identity → category attributes → offer → images → submit.
- * Uses Peytakilid taxonomy/APIs (not Amazon content).
+ * Simple listing wizard:
+ * category → identity → details → offer → images → submit.
  */
 export function SellerListingWizard({
   locale,

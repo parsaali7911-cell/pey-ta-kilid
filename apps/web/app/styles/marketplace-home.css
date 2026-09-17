@@ -1865,3 +1865,102 @@ body.rtl .header-supplier-link {
   padding: 0.2rem 0.5rem;
   border-radius: 999px;
 }
+
+/* Simple marketplace forms (Divar-inspired UX patterns — original styles) */
+.dv-page {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 1rem 0 2rem;
+}
+.dv-page__title {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+.dv-page__lead {
+  margin: 0 0 1rem;
+  color: #667;
+  font-size: 0.95rem;
+}
+.dv-card {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  padding: 1rem 1.1rem 1.15rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.dv-form {
+  display: grid;
+  gap: 0.75rem;
+}
+.dv-form label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #333;
+}
+.dv-form input,
+.dv-form select,
+.dv-form textarea {
+  width: 100%;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem;
+  font-size: 1rem;
+  background: #fafafa;
+}
+.dv-form input:focus,
+.dv-form select:focus,
+.dv-form textarea:focus {
+  outline: none;
+  border-color: #a62626;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(166, 38, 38, 0.12);
+}
+.dv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  background: #a62626;
+  cursor: pointer;
+}
+.dv-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.dv-btn:hover:not(:disabled) {
+  background: #8f1f1f;
+}
+.dv-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  font-size: 0.82rem;
+  color: #888;
+}
+.dv-steps .is-active {
+  color: #a62626;
+  font-weight: 700;
+}
+.dv-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+.dv-list li {
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid #f0f0f0;
+}

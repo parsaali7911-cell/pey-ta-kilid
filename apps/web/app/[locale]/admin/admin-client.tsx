@@ -35,13 +35,6 @@ type Lead = {
   notes?: string | null;
 };
 
-type AiStatus = {
-  provider: string;
-  translation?: { locales: string[]; fields: string[] };
-  capabilities?: Record<string, string>;
-  note?: string;
-};
-
 type SubmittedPayment = {
   id: string;
   amount: number;
@@ -81,7 +74,6 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
   const [pending, setPending] = useState<PendingListing[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [payments, setPayments] = useState<SubmittedPayment[]>([]);
-  const [ai, setAi] = useState<AiStatus | null>(null);
   const [categories, setCategories] = useState<TaxonNode[]>([]);
   const [taxCatId, setTaxCatId] = useState('');
   const [taxAttrs, setTaxAttrs] = useState<AttrDef[]>([]);
@@ -102,17 +94,15 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
       return;
     }
     setUser(me);
-    const [list, leadList, payList, aiStatus, cats] = await Promise.all([
+    const [list, leadList, payList, cats] = await Promise.all([
       apiAuthed<PendingListing[]>('/admin/listings/pending'),
       apiAuthed<Lead[]>('/professionals/leads').catch(() => []),
       apiAuthed<SubmittedPayment[]>('/admin/payments/submitted').catch(() => []),
-      fetch(apiUrl('/ai/status')).then((r) => r.json()),
       fetch(apiUrl('/categories?locale=' + locale)).then((r) => r.json()),
     ]);
     setPending(list || []);
     setLeads(leadList || []);
     setPayments(payList || []);
-    setAi(aiStatus);
     setCategories(Array.isArray(cats) ? cats : []);
   }, [copy.admin_forbidden, locale, router]);
 
@@ -198,37 +188,6 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
         <section className="panel-card">
           <h2>{copy.admin_market_control}</h2>
           <p className="panel-muted">{copy.admin_market_lead}</p>
-          <ol className="panel-steps">
-            <li>{copy.admin_step_1}</li>
-            <li>{copy.admin_step_2}</li>
-            <li>{copy.admin_step_3}</li>
-            <li>{copy.admin_step_4}</li>
-          </ol>
-        </section>
-
-        <section className="panel-card">
-          <h2>{copy.admin_ai_title}</h2>
-          <p className="panel-muted">{copy.admin_ai_lead}</p>
-          <ul className="panel-list">
-            <li>
-              <strong>Provider:</strong> {ai?.provider || '—'}
-            </li>
-            <li>
-              <strong>Locales:</strong> {(ai?.translation?.locales || []).join(', ')}
-            </li>
-            <li>
-              <strong>Fields:</strong> {(ai?.translation?.fields || []).join(', ')}
-            </li>
-            {ai?.capabilities
-              ? Object.entries(ai.capabilities).map(([k, v]) => (
-                  <li key={k}>
-                    <strong>{k}:</strong> {v}
-                  </li>
-                ))
-              : null}
-            <li>{ai?.note}</li>
-          </ul>
-          <p className="panel-muted">{copy.admin_ai_intent_note}</p>
         </section>
 
         <section className="panel-card">

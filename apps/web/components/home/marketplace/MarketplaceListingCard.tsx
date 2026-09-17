@@ -50,7 +50,6 @@ export function MarketplaceListingCard({
             {[listing.categoryName, listing.sellerName, listing.city].filter(Boolean).join(' · ')}
           </p>
           <p className="mp-stone-card__price">{priceLabel}</p>
-          {hasPrice ? <p className="mp-stone-card__price-note">{copy.mp_price_includes_margin}</p> : null}
           <span className="mp-cta-line">
             {copy.mp_view_listing} <span aria-hidden>→</span>
           </span>

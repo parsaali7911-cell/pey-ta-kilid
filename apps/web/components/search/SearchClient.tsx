@@ -346,7 +346,6 @@ export function SearchClient({
           {summary ? <p className="search-ai-card__summary">{summary}</p> : null}
           {intentInfo ? <p className="search-ai-card__info">{intentInfo}</p> : null}
           {preferCheapest ? <p className="search-ai-card__badge">{copy.search_cheapest_badge}</p> : null}
-          <p className="search-ai-card__pricing">{copy.mp_pricing_note}</p>
           {deepLink ? (
             <p style={{ marginTop: '0.75rem' }}>
               <a className="mp-btn mp-btn--primary" href={deepLink}>

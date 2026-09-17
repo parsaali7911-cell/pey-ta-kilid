@@ -40,7 +40,7 @@ export function RegisterClient({
   }
 
   return (
-    <form className="panel-form" onSubmit={onSubmit}>
+    <form className="dv-form" onSubmit={onSubmit}>
       <label>
         {copy.auth_full_name}
         <input value={fullName} onChange={(e) => setFullName(e.target.value)} autoComplete="name" />
@@ -61,7 +61,7 @@ export function RegisterClient({
         />
       </label>
       {error ? <p className="panel-err">{error}</p> : null}
-      <button className="mp-btn mp-btn--primary" type="submit" disabled={busy}>
+      <button className="dv-btn" type="submit" disabled={busy}>
         {busy ? '…' : copy.auth_register_cta}
       </button>
       <p className="panel-muted">

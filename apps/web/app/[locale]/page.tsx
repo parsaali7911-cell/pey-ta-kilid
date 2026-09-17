@@ -76,14 +76,6 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
     <div className="mp-home mp-home--hub">
       <MarketplaceHero copy={copy} locale={locale} spotlight={spotlight} />
 
-      <section className="mp-hub-trust" aria-label={copy.mp_hub_trust_label}>
-        <div className="mp-hub-trust__inner">
-          <p>{copy.mp_hub_trust_1}</p>
-          <p>{copy.mp_hub_trust_2}</p>
-          <p>{copy.mp_hub_trust_3}</p>
-        </div>
-      </section>
-
       <MarketplaceEntryPaths locale={locale} copy={copy} />
 
       <section className="mp-featured" aria-labelledby="mp-featured-title">
@@ -91,7 +83,7 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
           <h2 id="mp-featured-title" className="mp-section-title">
             {copy.mp_featured_title}
           </h2>
-          <p className="mp-section-lead">{copy.mp_featured_lead}</p>
+          {copy.mp_featured_lead ? <p className="mp-section-lead">{copy.mp_featured_lead}</p> : null}
           {featured.length === 0 ? (
             <div className="pk-empty">{copy.no_results}</div>
           ) : (

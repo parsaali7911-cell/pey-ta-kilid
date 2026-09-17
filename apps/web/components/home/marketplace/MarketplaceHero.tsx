@@ -66,25 +66,6 @@ export function MarketplaceHero({
             suggestions={examples}
           />
         </div>
-
-        <p className="mp-hero__freeform-note">{copy.mp_prompt_freeform}</p>
-
-        <ul className="mp-hero__journeys" aria-label={copy.mp_journey_label}>
-          <li>
-            <span className="mp-hero__journey-dot" aria-hidden />
-            {copy.mp_journey_buy}
-          </li>
-          <li>
-            <span className="mp-hero__journey-dot" aria-hidden />
-            {copy.mp_journey_sell}
-          </li>
-          <li>
-            <span className="mp-hero__journey-dot" aria-hidden />
-            {copy.mp_journey_pro}
-          </li>
-        </ul>
-
-        <p className="mp-hero__pricing-note">{copy.mp_pricing_note}</p>
       </div>
     </section>
   );

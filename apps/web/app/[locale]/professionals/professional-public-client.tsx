@@ -240,16 +240,18 @@ export function ProfessionalOnboardWizard({
   copy,
   initialSpecialty,
   initialCity,
+  compact = false,
 }: {
   locale: Locale;
   copy: Record<string, string>;
   initialSpecialty?: string;
   initialCity?: string;
+  compact?: boolean;
 }) {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [displayName, setDisplayName] = useState('');
-  const [specialty, setSpecialty] = useState(initialSpecialty || 'tile_installation');
+  const [specialty, setSpecialty] = useState(initialSpecialty || 'electrical');
   const [city, setCity] = useState(initialCity || 'Tehran');
   const [mobilePhone, setMobilePhone] = useState('');
   const [nationalId, setNationalId] = useState('');
@@ -379,15 +381,9 @@ export function ProfessionalOnboardWizard({
   }
 
   return (
-    <div className="panel-card" style={{ marginBottom: '1.5rem' }}>
-      <h2>{copy.pro_onboard_title || 'ثبت‌نام متخصص'}</h2>
-      <p className="panel-muted">
-        {copy.pro_onboard_score_hint || 'رتبه پروفایل از ۱۰۰ — برای اعتماد بیشتر مشخصات کامل‌تر بگذارید.'}{' '}
-        <strong>
-          {score}/100
-        </strong>
-      </p>
-      <ol className="pro-onboard-steps">
+    <div className={compact ? 'dv-card' : 'panel-card'} style={{ marginBottom: compact ? 0 : '1.5rem' }}>
+      {!compact ? <h2>{copy.pro_onboard_title || 'ثبت‌نام متخصص'}</h2> : null}
+      <ol className="dv-steps">
         {steps.map((label, i) => (
           <li key={label} className={step === i + 1 ? 'is-active' : undefined}>
             {i + 1}. {label}
@@ -398,7 +394,7 @@ export function ProfessionalOnboardWizard({
       {msg ? <p className="panel-ok">{msg}</p> : null}
 
       {step === 1 ? (
-        <form className="form" onSubmit={createProfile}>
+        <form className="dv-form" onSubmit={createProfile}>
           <label>
             {copy.pro_display_name || 'نام نمایشی'}
             <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} required minLength={2} />
@@ -437,30 +433,34 @@ export function ProfessionalOnboardWizard({
               maxLength={10}
             />
           </label>
-          <button className="mp-btn mp-btn--primary" disabled={busy} type="submit">
+          <button className="dv-btn" disabled={busy} type="submit">
             {copy.pro_continue || 'ادامه'}
           </button>
         </form>
       ) : null}
 
       {step === 2 ? (
-        <form className="form" onSubmit={confirmOtp}>
-          <p className="panel-muted">{copy.pro_otp_hint || 'کد ۶ رقمی ارسال‌شده را وارد کنید.'}</p>
-          {devCode ? <p className="panel-ok">DEV code: {devCode}</p> : null}
+        <form className="dv-form" onSubmit={confirmOtp}>
+          <p className="panel-muted">{copy.pro_otp_hint || 'کد ۶ رقمی را وارد کنید.'}</p>
+          {devCode ? (
+            <p className="panel-ok">
+              {copy.pro_otp_hint}: <strong>{devCode}</strong>
+            </p>
+          ) : null}
           <label>
-            OTP
+            {copy.pro_verify_mobile || 'کد تأیید'}
             <input value={otpCode} onChange={(e) => setOtpCode(e.target.value)} required minLength={4} />
           </label>
-          <button className="mp-btn mp-btn--primary" disabled={busy} type="submit">
+          <button className="dv-btn" disabled={busy} type="submit">
             {copy.pro_verify_mobile || 'تأیید موبایل'}
           </button>
         </form>
       ) : null}
 
       {step === 3 ? (
-        <div className="form">
+        <div className="dv-form">
           <label>
-            {copy.pro_avatar || 'عکس چهره / پروفایل'}
+            {copy.pro_avatar || 'عکس پروفایل'}
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
@@ -470,7 +470,7 @@ export function ProfessionalOnboardWizard({
               }}
             />
           </label>
-          <form onSubmit={enrich}>
+          <form onSubmit={enrich} className="dv-form">
             <label>
               {copy.pro_bio || 'معرفی کوتاه'}
               <textarea name="bio" rows={3} placeholder={copy.pro_bio_ph || 'سابقه و نوع کار…'} />
@@ -479,8 +479,8 @@ export function ProfessionalOnboardWizard({
               {copy.pro_years || 'سابقه (سال)'}
               <input name="years" type="number" min={0} max={80} />
             </label>
-            <button className="mp-btn mp-btn--primary" disabled={busy} type="submit">
-              {copy.pro_finish || 'مشاهده پروفایل عمومی'}
+            <button className="dv-btn" disabled={busy} type="submit">
+              {copy.pro_finish || 'ثبت و مشاهده'}
             </button>
           </form>
         </div>
