@@ -12,6 +12,7 @@ type PublicListing = {
   uomCode?: string | null;
   price?: { displayPrice?: number | null; currency?: string | null } | null;
   category?: {
+    slug?: string | null;
     name?: string | null;
     nameEn?: string | null;
     nameFa?: string | null;
@@ -19,6 +20,13 @@ type PublicListing = {
   } | null;
   organization?: { name?: string | null } | null;
   media?: Array<{ url?: string | null; status?: string | null }>;
+};
+
+type CategoryRow = {
+  slug: string;
+  name?: string;
+  nameEn?: string;
+  nameFa?: string;
 };
 
 function categoryName(listing: PublicListing, locale: Locale) {
@@ -30,24 +38,52 @@ function categoryName(listing: PublicListing, locale: Locale) {
 
 export default async function CatalogPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>;
+  searchParams: Promise<{ category?: string }>;
 }) {
   const { locale: raw } = await params;
   if (!isLocale(raw)) notFound();
   const locale = raw;
+  const sp = await searchParams;
+  const categorySlug = (sp.category || '').trim();
   const copy = t(locale);
-  const listings =
-    (await apiGet<PublicListing[]>(`/catalog/listings?locale=${encodeURIComponent(locale)}`)) ||
-    [];
+  const [listings, categories] = await Promise.all([
+    apiGet<PublicListing[]>(`/catalog/listings?locale=${encodeURIComponent(locale)}`),
+    apiGet<CategoryRow[]>(`/categories?locale=${encodeURIComponent(locale)}`),
+  ]);
+
+  const all = listings || [];
+  const filtered = categorySlug
+    ? all.filter((l) => (l.category?.slug || '').toLowerCase() === categorySlug.toLowerCase())
+    : all;
+  const activeCat = (categories || []).find((c) => c.slug === categorySlug);
+  const catTitle =
+    locale === 'fa'
+      ? activeCat?.nameFa || activeCat?.name || categorySlug
+      : activeCat?.nameEn || activeCat?.name || categorySlug;
 
   return (
-    <PublicPageShell locale={locale} kicker={copy.brand} title={copy.catalog_title} lead={copy.catalog_lead} wide>
-      {listings.length === 0 ? (
+    <PublicPageShell
+      locale={locale}
+      kicker={copy.brand}
+      title={categorySlug ? catTitle || copy.catalog_title : copy.catalog_title}
+      lead={categorySlug ? copy.catalog_lead : copy.catalog_lead}
+      wide
+    >
+      {categorySlug ? (
+        <p className="panel-muted" style={{ marginBottom: '1rem' }}>
+          <a href={`/${locale}/catalog`}>{copy.mp_cats_all}</a>
+          {' · '}
+          {filtered.length} {copy.mp_featured_title}
+        </p>
+      ) : null}
+      {filtered.length === 0 ? (
         <div className="pk-empty">{copy.no_results}</div>
       ) : (
-        <div className="pk-catalog-grid">
-          {listings.map((listing) => {
+        <div className="mb-featured__grid">
+          {filtered.map((listing) => {
             const media = (listing.media || []).find(
               (m) => m.url && (!m.status || m.status === 'APPROVED'),
             );
@@ -56,6 +92,7 @@ export default async function CatalogPage({
                 key={listing.slug}
                 locale={locale}
                 copy={copy}
+                showDesignCta={false}
                 listing={{
                   slug: listing.slug,
                   title: listing.title,

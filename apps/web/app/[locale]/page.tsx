@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation';
 import { apiGet } from '@/lib/api';
 import { isLocale, t, type Locale } from '@/lib/i18n-public';
 import { MarketplaceHero } from '@/components/home/marketplace/MarketplaceHero';
-import { MarketplaceEntryPaths } from '@/components/home/marketplace/MarketplaceEntryPaths';
+import { MarketplaceCategoryGrid } from '@/components/home/marketplace/MarketplaceCategoryGrid';
+import { MarketplaceRoleStrip } from '@/components/home/marketplace/MarketplaceRoleStrip';
 import { MarketplaceListingCard } from '@/components/home/marketplace/MarketplaceListingCard';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +15,7 @@ type PublicListing = {
   uomCode?: string | null;
   price?: { displayPrice?: number | null; currency?: string | null } | null;
   category?: {
+    slug?: string | null;
     name?: string | null;
     nameEn?: string | null;
     nameFa?: string | null;
@@ -21,6 +23,18 @@ type PublicListing = {
   } | null;
   organization?: { name?: string | null } | null;
   media?: Array<{ url?: string | null; status?: string | null }>;
+  facility?: { address?: { city?: string | null } | null } | null;
+};
+
+type CategoryRow = {
+  id: string;
+  parentId?: string | null;
+  slug: string;
+  name?: string;
+  nameEn?: string;
+  nameFa?: string;
+  nameAr?: string | null;
+  defaultUomCode?: string | null;
 };
 
 function categoryName(listing: PublicListing, locale: Locale) {
@@ -33,6 +47,12 @@ function categoryName(listing: PublicListing, locale: Locale) {
 function coverUrl(listing: PublicListing) {
   const m = (listing.media || []).find((x) => x.url && (!x.status || x.status === 'APPROVED'));
   return m?.url || null;
+}
+
+function catLabel(c: CategoryRow, locale: Locale) {
+  if (locale === 'fa') return c.nameFa || c.name || c.nameEn || c.slug;
+  if (locale === 'ar') return c.nameAr || c.nameEn || c.name || c.slug;
+  return c.nameEn || c.name || c.nameFa || c.slug;
 }
 
 export async function generateMetadata({
@@ -58,11 +78,15 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
   if (!isLocale(raw)) notFound();
   const locale = raw;
   const copy = t(locale);
-  const listings =
-    (await apiGet<PublicListing[]>(`/catalog/listings?locale=${encodeURIComponent(locale)}`)) ||
-    [];
-  const featured = listings.slice(0, 6);
-  const heroSource = featured[0];
+
+  const [listings, categories] = await Promise.all([
+    apiGet<PublicListing[]>(`/catalog/listings?locale=${encodeURIComponent(locale)}`),
+    apiGet<CategoryRow[]>(`/categories?locale=${encodeURIComponent(locale)}`),
+  ]);
+
+  const allListings = listings || [];
+  const featured = allListings.slice(0, 8);
+  const heroSource = featured.find((l) => coverUrl(l)) || featured[0];
   const spotlight = heroSource
     ? {
         title: heroSource.title,
@@ -72,35 +96,39 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
       }
     : null;
 
+  // Leaf categories only (have a parent) — like Material Bank material types.
+  const leafCats = (categories || [])
+    .filter((c) => c.parentId && c.defaultUomCode)
+    .map((c) => ({ slug: c.slug, name: catLabel(c, locale), tone: 'neutral' }));
+
   return (
-    <div className="mp-home mp-home--hub">
+    <div className="mp-home mp-home--hub mp-home--materials">
       <MarketplaceHero copy={copy} locale={locale} spotlight={spotlight} />
 
-      <MarketplaceEntryPaths locale={locale} copy={copy} />
+      <MarketplaceCategoryGrid locale={locale} copy={copy} categories={leafCats} />
 
-      <section className="mp-featured" aria-labelledby="mp-featured-title">
-        <div className="mp-featured__inner" style={{ padding: '0 var(--mp-x) 2.5rem' }}>
-          <h2 id="mp-featured-title" className="mp-section-title">
-            {copy.mp_featured_title}
-          </h2>
-          {copy.mp_featured_lead ? <p className="mp-section-lead">{copy.mp_featured_lead}</p> : null}
+      <MarketplaceRoleStrip locale={locale} copy={copy} />
+
+      <section className="mb-featured" aria-labelledby="mb-featured-title">
+        <div className="mb-featured__inner">
+          <div className="mb-featured__head">
+            <h2 id="mb-featured-title" className="mp-section-title">
+              {copy.mp_featured_title}
+            </h2>
+            <a className="mb-featured__link" href={`/${locale}/catalog`}>
+              {copy.mp_cats_all}
+            </a>
+          </div>
           {featured.length === 0 ? (
             <div className="pk-empty">{copy.no_results}</div>
           ) : (
-            <div
-              className="mp-featured__grid"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))',
-                gap: '1.1rem',
-                marginTop: '1.25rem',
-              }}
-            >
+            <div className="mb-featured__grid">
               {featured.map((listing) => (
                 <MarketplaceListingCard
                   key={listing.slug}
                   locale={locale}
                   copy={copy}
+                  showDesignCta={false}
                   listing={{
                     slug: listing.slug,
                     title: listing.title,
@@ -110,16 +138,12 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
                     currency: listing.price?.currency,
                     uomCode: listing.uomCode,
                     imageUrl: coverUrl(listing),
+                    city: listing.facility?.address?.city || null,
                   }}
                 />
               ))}
             </div>
           )}
-          <div className="mp-btn-row" style={{ marginTop: '1.25rem' }}>
-            <a className="mp-btn mp-btn--primary" href={`/${locale}/catalog`}>
-              {copy.mp_hero_cta} →
-            </a>
-          </div>
         </div>
       </section>
     </div>

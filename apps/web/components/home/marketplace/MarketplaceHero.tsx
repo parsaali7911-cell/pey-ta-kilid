@@ -3,17 +3,17 @@ import type { Locale } from '@/lib/i18n-public';
 
 /** Optional chips only — any free-form prompt works; these are not required templates. */
 const EXAMPLE_PROMPTS_FA = [
-  'برای آشپزخانه کابینت می‌خوام توی اصفهان',
-  'نقاش ساختمان اطراف قشم',
-  'می‌خواهم میلگرد بفروشم از انبار تهران',
-  'شیرآلات با قیمت مناسب برای پروژه در یزد',
+  'سرامیک کف برای ویلا در کرج',
+  'کابینت آشپزخانه هایگلاس',
+  'میلگرد برای اسکلت در تهران',
+  'نقاش ساختمان در اصفهان',
 ];
 
 const EXAMPLE_PROMPTS_EN = [
-  'Kitchen cabinets for a project in Isfahan',
-  'Building painter near Qeshm',
-  'I want to sell rebar from a Tehran warehouse',
-  'Affordable faucets for a job in Yazd',
+  'Floor tile for a villa in Karaj',
+  'High-gloss kitchen cabinets',
+  'Rebar for structure in Tehran',
+  'Building painter in Isfahan',
 ];
 
 /**
