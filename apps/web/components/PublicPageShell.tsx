@@ -16,7 +16,7 @@ export function PublicPageShell({
   wide?: boolean;
 }) {
   return (
-    <div className="panel-workspace public-workspace" lang={locale}>
+    <div className="panel-workspace public-workspace public-page-shell" lang={locale}>
       <header className="panel-header">
         <div className="panel-header__brand">
           {kicker ? <p className="public-kicker">{kicker}</p> : null}

@@ -244,7 +244,7 @@ export default async function ListingPage({
               </div>
             ) : null}
           </div>
-          <div style={{ marginTop: '1.25rem', display: 'grid', gap: '0.65rem' }}>
+          <div className="pk-listing-buybox pk-actions--stack">
             <RequestQuoteButton
               locale={locale}
               copy={copy}
@@ -261,7 +261,7 @@ export default async function ListingPage({
               listingTitle={listing.title}
               listingImageUrl={cover?.url || null}
             />
-            <a className="mp-btn" href={`/${locale}/designer?listing=${encodeURIComponent(listing.slug)}`}>
+            <a className="mp-btn mp-btn--block" href={`/${locale}/designer?listing=${encodeURIComponent(listing.slug)}`}>
               {copy.listing_try_design}
             </a>
           </div>

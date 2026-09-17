@@ -2,6 +2,7 @@
 
 import { PublicHeader } from './PublicHeader';
 import { PublicFooter } from './PublicFooter';
+import { MobileTabBar } from './MobileTabBar';
 import type { Locale } from '@/lib/i18n-public';
 
 export function PublicShell({
@@ -16,8 +17,9 @@ export function PublicShell({
   return (
     <>
       <PublicHeader locale={locale} copy={copy} />
-      <main>{children}</main>
+      <main className="site-main">{children}</main>
       <PublicFooter locale={locale} copy={copy} />
+      <MobileTabBar locale={locale} copy={copy} />
     </>
   );
 }

@@ -123,6 +123,7 @@ body.rtl .mp-home .mp-section-title {
   align-items: center;
   background: transparent;
   border: 1px solid var(--mp-accent);
+  border-radius: var(--pk-btn-radius, 999px);
   color: var(--mp-ink);
   display: inline-flex;
   font-family: var(--font-nav);

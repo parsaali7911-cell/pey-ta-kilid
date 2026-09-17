@@ -348,19 +348,9 @@ export default function DesignerClient({
         {providerReady ? copy.designer_provider_ready : copy.designer_requires_cred}
       </p>
 
-      <ol className="designer-steps" style={{ listStyle: 'none', padding: 0, display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+      <ol className="designer-steps">
         {steps.map((s, i) => (
-          <li
-            key={s.label}
-            className={s.done ? 'result' : undefined}
-            style={{
-              padding: '0.35rem 0.7rem',
-              borderRadius: 999,
-              border: '1px solid var(--sc-border, #ddd)',
-              background: s.done ? 'rgba(40,140,90,0.12)' : 'transparent',
-              fontSize: '0.85rem',
-            }}
-          >
+          <li key={s.label} className={s.done ? 'result is-done' : undefined}>
             {i + 1}. {s.label}
           </li>
         ))}
@@ -369,10 +359,10 @@ export default function DesignerClient({
       <form className="form designer-form" onSubmit={onGenerate}>
         <div className="designer-catalog-field">
           <strong>{copy.designer_space}</strong>
-          <p className="panel-muted" style={{ margin: '0.35rem 0 0.55rem', fontSize: '0.85rem' }}>
+          <p className="panel-muted" style={{ margin: '0.35rem 0 0.55rem' }}>
             {copy.designer_space_hint || 'عکس فضا را از گالری یا دوربین گوشی بفرستید.'}
           </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div className="designer-toolbar">
             <button
               type="button"
               className="mp-btn"
@@ -432,19 +422,16 @@ export default function DesignerClient({
 
         <div className="designer-catalog-field">
           <strong>{copy.designer_step_product}</strong>
-          <p className="panel-muted" style={{ margin: '0.35rem 0 0.55rem', fontSize: '0.85rem' }}>
+          <p className="panel-muted" style={{ margin: '0.35rem 0 0.55rem' }}>
             {copy.designer_product_photo_hint ||
               'عکس کالا را از کاتالوگ بگیرید یا خودتان از گوشی آپلود کنید.'}
           </p>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.65rem' }}>
+          <div className="designer-toolbar">
             <button
               type="button"
-              className="mp-btn"
-              style={{
-                borderColor: productPhotoSource === 'catalog' ? 'var(--sc-teal, #2a6b5c)' : undefined,
-                background: productPhotoSource === 'catalog' ? 'rgba(42,107,92,0.1)' : undefined,
-              }}
+              className={`mp-btn${productPhotoSource === 'catalog' ? ' is-active' : ''}`}
+              aria-pressed={productPhotoSource === 'catalog'}
               disabled={busy}
               onClick={() => {
                 clearPhoneProductPhoto();
@@ -456,11 +443,8 @@ export default function DesignerClient({
             </button>
             <button
               type="button"
-              className="mp-btn"
-              style={{
-                borderColor: productPhotoSource === 'phone' ? 'var(--sc-teal, #2a6b5c)' : undefined,
-                background: productPhotoSource === 'phone' ? 'rgba(42,107,92,0.1)' : undefined,
-              }}
+              className={`mp-btn${productPhotoSource === 'phone' ? ' is-active' : ''}`}
+              aria-pressed={productPhotoSource === 'phone'}
               disabled={!session || Boolean(uploading) || busy}
               onClick={() => productFileRef.current?.click()}
             >
@@ -623,7 +607,7 @@ export default function DesignerClient({
           />
         </label>
 
-        <button className="mp-btn mp-btn--primary" type="submit" disabled={!canGenerate}>
+        <button className="mp-btn mp-btn--primary mp-btn--block" type="submit" disabled={!canGenerate}>
           {busy ? copy.designer_processing : copy.designer_generate}
         </button>
       </form>

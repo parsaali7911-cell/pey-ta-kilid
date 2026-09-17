@@ -1,6 +1,7 @@
 /* Peytakilid public styles */
 
 @import './styles/peytakilid-tokens.css';
+@import './styles/peytakilid-ui.css';
 @import './styles/peytakilid-globals.css';
 @import './styles/peytakilid-panel-theme.css';
 @import './styles/whatsapp-chat.css';
