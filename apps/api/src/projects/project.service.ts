@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  MediaStatus,
   Prisma,
   ProjectLeadTimeSource,
   ProjectMemberRole,
@@ -16,6 +17,7 @@ import {
 } from '@prisma/client';
 import {
   PROJECT_STAGE_CATALOG,
+  buildStageSuggestions,
   computeRecommendedRfqDate,
   projectStageByCode,
   projectStageLabel,
@@ -23,18 +25,29 @@ import {
 import { OrgAccessService } from '../common/org-access.service';
 import { resolveIranPlace } from '../geo/iran-place';
 import { PrismaService } from '../prisma/prisma.service';
+import { AiGatewayService } from '../ai/ai-gateway.service';
+import { randomUUID } from 'crypto';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { extname, join } from 'path';
+
+const PROJECT_UPLOAD_ROOT = join(process.cwd(), 'uploads', 'projects');
+const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
 
 export type CreateProjectInput = {
   ownerOrganizationId: string;
   name: string;
+  ownerName?: string | null;
   projectTypeCode?: string | null;
   areaM2?: number | null;
   startDate?: string | null;
   estimatedCompletionDate?: string | null;
   city?: string | null;
   countryCode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  initialStageCode?: string | null;
   notes?: string | null;
-  /** If true, seed all catalog stages as PLANNED and activate first. */
+  /** If true, seed all catalog stages as PLANNED and activate first/initial. */
   seedStages?: boolean;
 };
 
@@ -57,6 +70,7 @@ export class ProjectService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orgAccess: OrgAccessService,
+    private readonly ai: AiGatewayService,
   ) {}
 
   async listForUser(userId: string, locale = 'fa') {
@@ -158,6 +172,7 @@ export class ProjectService {
       id: full.id,
       publicId: full.publicId,
       name: full.name,
+      ownerName: full.ownerName,
       projectTypeCode: full.projectTypeCode,
       areaM2: full.areaM2 != null ? Number(full.areaM2) : null,
       startDate: full.startDate,
@@ -168,6 +183,8 @@ export class ProjectService {
         : null,
       status: full.status,
       notes: full.notes,
+      analysisSummary: full.analysisSummary,
+      lastAnalyzedAt: full.lastAnalyzedAt,
       progressPct: progress,
       location: full.address
         ? {
@@ -222,9 +239,15 @@ export class ProjectService {
 
     let addressId: string | undefined;
     let geoPointId: string | undefined;
-    if (input.city?.trim()) {
-      const place = resolveIranPlace(input.city.trim());
-      const city = place?.city || input.city.trim();
+    const hasCoords =
+      input.latitude != null &&
+      input.longitude != null &&
+      Number.isFinite(input.latitude) &&
+      Number.isFinite(input.longitude);
+
+    if (input.city?.trim() || hasCoords) {
+      const place = input.city?.trim() ? resolveIranPlace(input.city.trim()) : null;
+      const city = place?.city || input.city?.trim() || 'Unknown';
       const address = await this.prisma.address.create({
         data: {
           countryCode: (input.countryCode || place?.countryCode || 'IR').toUpperCase(),
@@ -234,7 +257,16 @@ export class ProjectService {
         },
       });
       addressId = address.id;
-      if (place) {
+      if (hasCoords) {
+        const gp = await this.prisma.geoPoint.create({
+          data: {
+            latitude: input.latitude!,
+            longitude: input.longitude!,
+            accuracyM: 50,
+          },
+        });
+        geoPointId = gp.id;
+      } else if (place) {
         const gp = await this.prisma.geoPoint.create({
           data: { latitude: place.latitude, longitude: place.longitude, accuracyM: 5000 },
         });
@@ -243,14 +275,17 @@ export class ProjectService {
     }
 
     const seed = input.seedStages !== false;
+    const initialCode =
+      (input.initialStageCode && projectStageByCode(input.initialStageCode)?.code) ||
+      PROJECT_STAGE_CATALOG[0].code;
     const stagesData = seed
-      ? PROJECT_STAGE_CATALOG.map((s, idx) => ({
+      ? PROJECT_STAGE_CATALOG.map((s) => ({
           stageCode: s.code,
           sortOrder: s.sortOrder,
           status:
-            idx === 0 ? ProjectStageStatus.ACTIVE : ProjectStageStatus.PLANNED,
-          progressPct: idx === 0 ? 5 : 0,
-          startedAt: idx === 0 ? new Date() : null,
+            s.code === initialCode ? ProjectStageStatus.ACTIVE : ProjectStageStatus.PLANNED,
+          progressPct: s.code === initialCode ? 5 : 0,
+          startedAt: s.code === initialCode ? new Date() : null,
         }))
       : [];
 
@@ -259,11 +294,12 @@ export class ProjectService {
         ownerOrganizationId: input.ownerOrganizationId,
         createdByUserId: userId,
         name: input.name.trim(),
+        ownerName: input.ownerName?.trim() || null,
         projectTypeCode: input.projectTypeCode || null,
         areaM2: input.areaM2 ?? null,
         startDate: parseDate(input.startDate),
         estimatedCompletionDate: parseDate(input.estimatedCompletionDate),
-        currentStageCode: stagesData[0]?.stageCode || null,
+        currentStageCode: stagesData.length ? initialCode : input.initialStageCode || null,
         notes: input.notes || null,
         addressId,
         geoPointId,
@@ -282,6 +318,7 @@ export class ProjectService {
     projectId: string,
     input: Partial<{
       name: string;
+      ownerName: string | null;
       projectTypeCode: string | null;
       areaM2: number | null;
       startDate: string | null;
@@ -326,6 +363,7 @@ export class ProjectService {
       where: { id: project.id },
       data: {
         name: input.name?.trim() || undefined,
+        ownerName: input.ownerName === undefined ? undefined : input.ownerName,
         projectTypeCode: input.projectTypeCode === undefined ? undefined : input.projectTypeCode,
         areaM2: input.areaM2 === undefined ? undefined : input.areaM2,
         startDate: input.startDate === undefined ? undefined : parseDate(input.startDate),
@@ -476,54 +514,236 @@ export class ProjectService {
 
   async seedStageSuggestions(userId: string, projectId: string, stageCode: string, locale = 'fa') {
     const project = await this.requireProjectAccess(userId, projectId, 'write');
-    const def = projectStageByCode(stageCode);
-    if (!def) throw new BadRequestException('Unknown stageCode');
+    if (!projectStageByCode(stageCode)) throw new BadRequestException('Unknown stageCode');
+    return this.applySuggestions(userId, project.id, stageCode, locale, 'STAGE_TEMPLATE');
+  }
 
-    const categories = def.categorySlugHints.length
+  async uploadPhoto(
+    userId: string,
+    projectId: string,
+    file: { buffer: Buffer; mimetype: string; originalname?: string; size: number },
+    altText?: string | null,
+    locale = 'fa',
+  ) {
+    const project = await this.requireProjectAccess(userId, projectId, 'write');
+    if (!file?.buffer?.length) throw new BadRequestException('Image file required');
+    if (file.size > 8 * 1024 * 1024) throw new BadRequestException('Max image size is 8MB');
+    const mime = (file.mimetype || '').toLowerCase();
+    if (!ALLOWED_MIME.has(mime)) {
+      throw new BadRequestException('Only JPEG, PNG, WebP, GIF images are allowed');
+    }
+    if (!existsSync(PROJECT_UPLOAD_ROOT)) mkdirSync(PROJECT_UPLOAD_ROOT, { recursive: true });
+    const ext =
+      extname(file.originalname || '').toLowerCase() ||
+      (mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : '.jpg');
+    const name = `${project.id}-${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
+    writeFileSync(join(PROJECT_UPLOAD_ROOT, name), file.buffer);
+    const url = `/api/uploads/projects/${name}`;
+    const count = await this.prisma.mediaAsset.count({ where: { projectId: project.id } });
+    await this.prisma.mediaAsset.create({
+      data: {
+        organizationId: project.ownerOrganizationId,
+        projectId: project.id,
+        storageKey: `projects/${name}`,
+        url,
+        mimeType: mime,
+        altText: altText || project.name,
+        sortOrder: count,
+        status: MediaStatus.PRIVATE,
+      },
+    });
+    return this.getWorkspace(userId, project.id, locale);
+  }
+
+  /**
+   * Smart analysis: strong deterministic stage suggestions + optional AI vision
+   * to refine stage from photos. Never invents listings/prices/lead times.
+   */
+  async analyze(userId: string, projectId: string, apply = true, locale = 'fa') {
+    const project = await this.requireProjectAccess(userId, projectId, 'write');
+    const full = await this.prisma.project.findUnique({
+      where: { id: project.id },
+      include: {
+        media: { orderBy: { sortOrder: 'asc' }, take: 4 },
+        address: true,
+      },
+    });
+    if (!full) throw new NotFoundException('Project not found');
+
+    let detectedStage = full.currentStageCode || 'planning';
+    let aiUsed = false;
+    let aiNote: string | null = null;
+
+    const photo = full.media.find((m) => m.url && m.mimeType?.startsWith('image/'));
+    if (photo?.url && this.ai.getProviderName() !== 'none') {
+      try {
+        const abs = photo.url.startsWith('/api/uploads/')
+          ? join(process.cwd(), 'uploads', photo.url.replace('/api/uploads/', ''))
+          : photo.url;
+        if (existsSync(abs) || photo.url.startsWith('http') || photo.url.startsWith('data:')) {
+          const stageList = PROJECT_STAGE_CATALOG.map((s) => s.code).join(', ');
+          const vision = await this.ai.vision({
+            imageRef: abs,
+            prompt: `Analyze this construction/site photo for procurement planning.
+Return JSON keys: caption, stageCode (ONE of: ${stageList}), categoryHint, material, roomType, confidence (0-1).
+Never invent prices, sellers, or inventory.`,
+            maxOutputTokens: 220,
+          });
+          const attrs = vision?.attributes || {};
+          const stageFromAi = String(attrs.stageCode || '');
+          if (stageFromAi && projectStageByCode(stageFromAi)) {
+            detectedStage = stageFromAi;
+            aiUsed = true;
+          } else {
+            const hint = `${attrs.categoryHint || ''} ${attrs.material || ''} ${attrs.roomType || ''} ${attrs.caption || ''}`.toLowerCase();
+            const mapped = mapVisionHintToStage(hint);
+            if (mapped) {
+              detectedStage = mapped;
+              aiUsed = true;
+            }
+          }
+          aiNote = String(attrs.caption || vision?.caption || '') || null;
+        }
+      } catch {
+        aiNote = 'AI unavailable — used stage catalog rules';
+      }
+    }
+
+    if (detectedStage !== full.currentStageCode) {
+      await this.setCurrentStage(userId, project.id, detectedStage, locale);
+    }
+
+    const suggestions = buildStageSuggestions({
+      currentStageCode: detectedStage,
+      projectTypeCode: full.projectTypeCode,
+      areaM2: full.areaM2 != null ? Number(full.areaM2) : null,
+      includeUpcoming: 2,
+    });
+
+    const summaryParts = [
+      locale === 'en'
+        ? `Stage: ${projectStageLabel(detectedStage, 'en')}`
+        : `مرحله: ${projectStageLabel(detectedStage, 'fa')}`,
+      full.projectTypeCode ? `type=${full.projectTypeCode}` : null,
+      full.areaM2 != null ? `${Number(full.areaM2)} m²` : null,
+      full.address?.city || null,
+      aiUsed ? (locale === 'en' ? 'AI photo stage assist' : 'کمک بینایی AI برای تشخیص مرحله') : null,
+      aiNote,
+      locale === 'en'
+        ? `${suggestions.filter((s) => s.priority === 'now').length} needs now, ${suggestions.filter((s) => s.priority === 'soon').length} soon`
+        : `${suggestions.filter((s) => s.priority === 'now').length} نیاز فعلی، ${suggestions.filter((s) => s.priority === 'soon').length} به‌زودی`,
+    ].filter(Boolean);
+
+    await this.prisma.project.update({
+      where: { id: project.id },
+      data: {
+        analysisSummary: summaryParts.join(' · '),
+        lastAnalyzedAt: new Date(),
+      },
+    });
+
+    let workspace = await this.getWorkspace(userId, project.id, locale);
+    if (apply) {
+      const applied = await this.applySuggestions(
+        userId,
+        project.id,
+        detectedStage,
+        locale,
+        aiUsed ? 'AI_SUGGESTION' : 'STAGE_TEMPLATE',
+        suggestions,
+      );
+      workspace = applied.workspace;
+    }
+
+    return {
+      detectedStage,
+      detectedStageLabel: projectStageLabel(detectedStage, locale),
+      aiUsed,
+      summary: summaryParts.join(' · '),
+      suggestions: suggestions.map((s) => ({
+        ...s,
+        title: locale === 'en' ? s.titleEn : s.titleFa,
+      })),
+      workspace,
+    };
+  }
+
+  private async applySuggestions(
+    userId: string,
+    projectId: string,
+    stageCode: string,
+    locale: string,
+    source: 'STAGE_TEMPLATE' | 'AI_SUGGESTION',
+    precomputed?: ReturnType<typeof buildStageSuggestions>,
+  ) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const suggestions =
+      precomputed ||
+      buildStageSuggestions({
+        currentStageCode: stageCode,
+        projectTypeCode: project.projectTypeCode,
+        areaM2: project.areaM2 != null ? Number(project.areaM2) : null,
+        includeUpcoming: 2,
+      });
+
+    const existing = await this.prisma.projectRequirement.findMany({
+      where: { projectId },
+      select: { title: true, specialtyCode: true, categoryId: true },
+    });
+    const existingKeys = new Set(
+      existing.map(
+        (e) =>
+          `${(e.specialtyCode || '').toLowerCase()}|${(e.title || '').toLowerCase()}`,
+      ),
+    );
+
+    const slugs = suggestions
+      .map((s) => s.categorySlug)
+      .filter((s): s is string => Boolean(s));
+    const categories = slugs.length
       ? await this.prisma.category.findMany({
-          where: { slug: { in: def.categorySlugHints }, isActive: true },
-          select: { id: true, slug: true, nameEn: true, nameFa: true, defaultUomCode: true },
+          where: { slug: { in: slugs }, isActive: true },
+          select: { id: true, slug: true, defaultUomCode: true },
         })
       : [];
     const bySlug = new Map(categories.map((c) => [c.slug, c]));
 
-    const created = [];
-    for (const slug of def.categorySlugHints) {
-      const cat = bySlug.get(slug);
-      if (!cat) continue;
-      const title = locale === 'en' ? cat.nameEn : cat.nameFa || cat.nameEn;
-      const row = await this.prisma.projectRequirement.create({
+    let createdCount = 0;
+    for (const s of suggestions) {
+      const title = locale === 'en' ? s.titleEn : s.titleFa;
+      const key = `${(s.specialtyCode || '').toLowerCase()}|${title.toLowerCase()}`;
+      if (existingKeys.has(key)) continue;
+      const cat = s.categorySlug ? bySlug.get(s.categorySlug) : null;
+      if (s.kind === 'PRODUCT' && s.categorySlug && !cat) continue;
+      await this.prisma.projectRequirement.create({
         data: {
-          projectId: project.id,
-          stageCode,
-          kind: ProjectRequirementKind.PRODUCT,
+          projectId,
+          stageCode: s.stageCode,
+          kind:
+            s.kind === 'SERVICE'
+              ? ProjectRequirementKind.SERVICE
+              : ProjectRequirementKind.PRODUCT,
           title,
-          categoryId: cat.id,
-          uomCode: cat.defaultUomCode || null,
-          source: ProjectRequirementSource.STAGE_TEMPLATE,
+          categoryId: cat?.id || null,
+          specialtyCode: s.specialtyCode || null,
+          quantity: s.quantity ?? null,
+          uomCode: s.uomCode || cat?.defaultUomCode || null,
+          source:
+            source === 'AI_SUGGESTION'
+              ? ProjectRequirementSource.AI_SUGGESTION
+              : ProjectRequirementSource.STAGE_TEMPLATE,
           status: ProjectRequirementStatus.PLANNED,
         },
       });
-      created.push(row.id);
-    }
-    for (const code of def.specialtyCodes) {
-      const row = await this.prisma.projectRequirement.create({
-        data: {
-          projectId: project.id,
-          stageCode,
-          kind: ProjectRequirementKind.SERVICE,
-          title: code.replace(/_/g, ' '),
-          specialtyCode: code,
-          source: ProjectRequirementSource.STAGE_TEMPLATE,
-          status: ProjectRequirementStatus.PLANNED,
-        },
-      });
-      created.push(row.id);
+      existingKeys.add(key);
+      createdCount += 1;
     }
 
     return {
-      createdCount: created.length,
-      workspace: await this.getWorkspace(userId, project.id, locale),
+      createdCount,
+      workspace: await this.getWorkspace(userId, projectId, locale),
     };
   }
 
@@ -890,4 +1110,21 @@ function parseDate(value?: string | null): Date | null {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) throw new BadRequestException('Invalid date');
   return d;
+}
+
+/** Map free-form vision captions/hints to a catalog stage code. */
+function mapVisionHintToStage(hint: string): string | null {
+  const h = hint.toLowerCase();
+  if (/facade|نما|stone cladding|نمای/.test(h)) return 'facade';
+  if (/floor|کف|tile|سرامیک|parquet|لمینت/.test(h)) return 'flooring';
+  if (/window|door|پنجره|درب|upvc/.test(h)) return 'doors_windows';
+  if (/paint|رنگ|finish|نازک|wallpaper/.test(h)) return 'finishing';
+  if (/cabinet|کابینت|kitchen|آشپزخانه/.test(h)) return 'cabinetry';
+  if (/electric|plumbing|pipe|mep|تأسیسات|برق|لوله/.test(h)) return 'mep';
+  if (/roof|سقف|waterproof|ایزوگام/.test(h)) return 'roofing';
+  if (/wall|دیوار|brick|آجر|بلوک|masonry/.test(h)) return 'walls';
+  if (/rebar|میلگرد|concrete|بتن|structure|اسکلت|formwork/.test(h)) return 'structure';
+  if (/foundation|فونداسیون|excavation|گودبرداری/.test(h)) return 'foundation';
+  if (/site|زمین|داربست|scaffold/.test(h)) return 'site_prep';
+  return null;
 }

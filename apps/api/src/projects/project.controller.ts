@@ -7,8 +7,11 @@ import {
   Post,
   Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   IsEnum,
   IsNumber,
@@ -18,6 +21,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { memoryStorage } from 'multer';
 import {
   ProjectRequirementKind,
   ProjectStageStatus,
@@ -33,6 +37,10 @@ class CreateProjectDto {
   @IsString()
   @MinLength(2)
   name!: string;
+
+  @IsOptional()
+  @IsString()
+  ownerName?: string;
 
   @IsOptional()
   @IsString()
@@ -59,6 +67,18 @@ class CreateProjectDto {
   countryCode?: string;
 
   @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @IsString()
+  initialStageCode?: string;
+
+  @IsOptional()
   @IsString()
   notes?: string;
 }
@@ -68,6 +88,10 @@ class UpdateProjectDto {
   @IsString()
   @MinLength(2)
   name?: string;
+
+  @IsOptional()
+  @IsString()
+  ownerName?: string | null;
 
   @IsOptional()
   @IsString()
@@ -308,5 +332,39 @@ export class ProjectController {
     @Query('locale') locale?: string,
   ) {
     return this.projects.syncCommerceLinks(req.user.userId, id, locale || 'fa');
+  }
+
+  @Post(':id/media')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 8 * 1024 * 1024 },
+    }),
+  )
+  uploadMedia(
+    @Req() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { altText?: string },
+    @Query('locale') locale?: string,
+  ) {
+    return this.projects.uploadPhoto(
+      req.user.userId,
+      id,
+      file,
+      body?.altText,
+      locale || 'fa',
+    );
+  }
+
+  @Post(':id/analyze')
+  analyze(
+    @Req() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Query('locale') locale?: string,
+    @Query('apply') apply?: string,
+  ) {
+    const shouldApply = apply !== '0' && apply !== 'false';
+    return this.projects.analyze(req.user.userId, id, shouldApply, locale || 'fa');
   }
 }

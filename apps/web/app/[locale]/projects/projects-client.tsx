@@ -7,6 +7,7 @@ import {
   fetchMe,
   getAccessToken,
 } from '@/lib/auth-client';
+import { apiUrl } from '@/lib/api';
 import type { Locale } from '@/lib/i18n-public';
 
 type OrgMem = {
@@ -26,6 +27,8 @@ type ProjectListItem = {
   openProcurementCount: number;
 };
 
+type StageOpt = { code: string; label: string };
+
 export default function ProjectsClient({
   locale,
   copy,
@@ -35,11 +38,17 @@ export default function ProjectsClient({
 }) {
   const router = useRouter();
   const [items, setItems] = useState<ProjectListItem[]>([]);
+  const [stages, setStages] = useState<StageOpt[]>([]);
   const [orgId, setOrgId] = useState('');
   const [name, setName] = useState('');
+  const [ownerName, setOwnerName] = useState('');
   const [city, setCity] = useState('Tehran');
+  const [lat, setLat] = useState('35.6892');
+  const [lng, setLng] = useState('51.3890');
   const [projectType, setProjectType] = useState('villa');
-  const [areaM2, setAreaM2] = useState('');
+  const [stageCode, setStageCode] = useState('walls');
+  const [areaM2, setAreaM2] = useState('850');
+  const [photos, setPhotos] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -53,12 +62,15 @@ export default function ProjectsClient({
     void (async () => {
       if (!getAccessToken()) return;
       try {
-        await fetchMe();
+        const me = await fetchMe();
+        if (me.fullName) setOwnerName(me.fullName);
+        const catalog = await apiAuthed<StageOpt[]>(`/projects/stage-catalog?locale=${locale}`);
+        setStages(Array.isArray(catalog) ? catalog : []);
+        if (catalog?.[0]?.code) setStageCode((prev) => prev || catalog[4]?.code || catalog[0].code);
         const orgs = await apiAuthed<OrgMem[]>('/organizations');
         const buy = (orgs || []).find((o) => o.organization.canBuy !== false);
         if (buy) setOrgId(buy.organization.id);
         else {
-          const me = await fetchMe();
           const slugBase = (me.email.split('@')[0] || 'buyer')
             .toLowerCase()
             .replace(/[^a-z0-9-]+/g, '-')
@@ -96,11 +108,25 @@ export default function ProjectsClient({
         json: {
           ownerOrganizationId: orgId,
           name: name.trim(),
+          ownerName: ownerName.trim() || undefined,
           projectTypeCode: projectType,
           city: city.trim() || undefined,
+          latitude: lat ? Number(lat) : undefined,
+          longitude: lng ? Number(lng) : undefined,
           areaM2: areaM2 ? Number(areaM2) : undefined,
+          initialStageCode: stageCode || undefined,
         },
       });
+      for (const file of photos.slice(0, 6)) {
+        const fd = new FormData();
+        fd.append('file', file);
+        await fetch(apiUrl(`/projects/${ws.id}/media?locale=${locale}`), {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${getAccessToken()}` },
+          body: fd,
+        });
+      }
+      await apiAuthed(`/projects/${ws.id}/analyze?locale=${locale}&apply=1`, { method: 'POST' });
       router.push(`/${locale}/projects/${ws.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
@@ -141,6 +167,10 @@ export default function ProjectsClient({
               <input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} />
             </label>
             <label>
+              {copy.proj_owner_name}
+              <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} required minLength={2} />
+            </label>
+            <label>
               {copy.proj_type}
               <select value={projectType} onChange={(e) => setProjectType(e.target.value)}>
                 <option value="villa">{copy.proj_type_villa}</option>
@@ -151,9 +181,29 @@ export default function ProjectsClient({
               </select>
             </label>
             <label>
+              {copy.proj_current_stage}
+              <select value={stageCode} onChange={(e) => setStageCode(e.target.value)}>
+                {stages.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
               {copy.proj_city}
               <input value={city} onChange={(e) => setCity(e.target.value)} />
             </label>
+            <div className="panel-grid-2">
+              <label>
+                {copy.proj_lat}
+                <input value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" />
+              </label>
+              <label>
+                {copy.proj_lng}
+                <input value={lng} onChange={(e) => setLng(e.target.value)} inputMode="decimal" />
+              </label>
+            </div>
             <label>
               {copy.proj_area}
               <input
@@ -164,8 +214,18 @@ export default function ProjectsClient({
                 placeholder="m²"
               />
             </label>
+            <label>
+              {copy.proj_photos}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                multiple
+                onChange={(e) => setPhotos(Array.from(e.target.files || []))}
+              />
+            </label>
+            <p className="panel-muted">{copy.proj_create_analyze_hint}</p>
             <button className="mp-btn mp-btn--primary" type="submit" disabled={busy || !orgId}>
-              {copy.proj_create_cta}
+              {busy ? copy.proj_analyzing : copy.proj_create_cta}
             </button>
           </form>
         </section>

@@ -32,6 +32,7 @@ type Requirement = {
 type Workspace = {
   id: string;
   name: string;
+  ownerName?: string | null;
   projectTypeCode?: string | null;
   areaM2?: number | null;
   status: string;
@@ -39,7 +40,14 @@ type Workspace = {
   currentStageCode?: string | null;
   currentStageLabel?: string | null;
   estimatedCompletionDate?: string | null;
-  location?: { city?: string; province?: string | null } | null;
+  analysisSummary?: string | null;
+  lastAnalyzedAt?: string | null;
+  location?: {
+    city?: string;
+    province?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+  } | null;
   stages: Array<{
     stageCode: string;
     label: string;
@@ -55,6 +63,7 @@ type Workspace = {
     leads: Array<{ id: string; publicId: string; status: string; specialtyHints: string[] }>;
     openRequirementCount: number;
   };
+  media?: Array<{ id: string; url?: string | null; altText?: string | null }>;
 };
 
 export default function ProjectWorkspaceClient({
@@ -199,6 +208,45 @@ export default function ProjectWorkspaceClient({
     }
   }
 
+  async function runAnalyze() {
+    setBusy(true);
+    setError('');
+    try {
+      const res = await apiAuthed<{ workspace: Workspace; summary?: string }>(
+        `/projects/${projectId}/analyze?locale=${locale}&apply=1`,
+        { method: 'POST' },
+      );
+      setWs(res.workspace);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Analyze failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onUploadPhoto(file: File) {
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(
+        (await import('@/lib/api')).apiUrl(`/projects/${projectId}/media?locale=${locale}`),
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${getAccessToken()}` },
+          body: fd,
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || `Upload ${res.status}`);
+      setWs(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function findProducts(r: Requirement) {
     const q = new URLSearchParams();
     q.set('q', r.title);
@@ -274,8 +322,12 @@ export default function ProjectWorkspaceClient({
           <h1>{ws.name}</h1>
           <p>
             {[
+              ws.ownerName,
               ws.projectTypeCode,
               ws.location?.city,
+              ws.location?.latitude != null && ws.location?.longitude != null
+                ? `${ws.location.latitude.toFixed(4)}, ${ws.location.longitude.toFixed(4)}`
+                : null,
               ws.areaM2 != null ? `${ws.areaM2} m²` : null,
               ws.currentStageLabel,
               `${ws.progressPct}%`,
@@ -284,8 +336,12 @@ export default function ProjectWorkspaceClient({
               .filter(Boolean)
               .join(' · ')}
           </p>
+          {ws.analysisSummary ? <p className="panel-muted">{ws.analysisSummary}</p> : null}
         </div>
         <div className="panel-header__actions">
+          <button type="button" className="mp-btn mp-btn--primary" disabled={busy} onClick={() => void runAnalyze()}>
+            {busy ? copy.proj_analyzing : copy.proj_analyze}
+          </button>
           <button type="button" className="mp-btn" disabled={busy} onClick={() => void syncCommerce()}>
             {copy.proj_sync_commerce}
           </button>
@@ -326,6 +382,32 @@ export default function ProjectWorkspaceClient({
               <button type="button" className="mp-btn" disabled={busy} onClick={() => void seedSuggestions()}>
                 {copy.proj_seed_suggestions}
               </button>
+            </div>
+          ) : null}
+          <label style={{ display: 'grid', gap: '0.35rem', marginTop: '0.85rem' }}>
+            {copy.proj_photos}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void onUploadPhoto(f);
+              }}
+            />
+          </label>
+          {ws.media?.length ? (
+            <div className="pro-portfolio-grid" style={{ marginTop: '0.75rem' }}>
+              {ws.media.map((m) =>
+                m.url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={m.id}
+                    src={m.url}
+                    alt={m.altText || ''}
+                    style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 10 }}
+                  />
+                ) : null,
+              )}
             </div>
           ) : null}
         </section>

@@ -1252,8 +1252,13 @@ model Project {
   ownerOrganizationId  String
   createdByUserId      String
   name                 String
+  /// Display name of project owner / builder (not necessarily login name).
+  ownerName            String?
   projectTypeCode      String?
   areaM2               Decimal?      @db.Decimal(18, 3)
+  /// Last smart-analysis summary (deterministic and/or AI-assisted).
+  analysisSummary      String?
+  lastAnalyzedAt       DateTime?
   startDate            DateTime?
   estimatedCompletionDate DateTime?
   currentStageCode     String?
