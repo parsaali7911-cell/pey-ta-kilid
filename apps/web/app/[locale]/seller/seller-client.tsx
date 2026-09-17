@@ -16,6 +16,7 @@ import type { Locale } from '@/lib/i18n-public';
 import { SellerListingWizard } from '@/components/seller/SellerListingWizard';
 import { SellerListingEditor } from '@/components/seller/SellerListingEditor';
 import { PROFESSIONAL_SPECIALTY_OPTIONS } from '@/lib/lexicon/specialties';
+import { WaChatThread } from '@/components/commerce/WaChatThread';
 
 type Org = {
   id: string;
@@ -925,95 +926,108 @@ export default function SellerClient({
           <section className="panel-card">
             <h2>{copy.seller_tab_chat}</h2>
             {!orgId ? <p className="panel-muted">{copy.seller_need_org}</p> : null}
-            <div className="seller-chat-list">
-              {chatThreads.map((t) => (
-                <button
-                  key={t.publicId}
-                  type="button"
-                  className={`seller-chat-item${activeChatId === t.publicId ? ' is-active' : ''}`}
-                  onClick={() => {
-                    setActiveChatId(t.publicId);
-                    void apiAuthed<{
-                      publicId: string;
-                      buyerLocale?: string | null;
-                      messages: Array<{
-                        id: string;
-                        senderRole: string;
-                        text?: string;
-                        body: string;
-                        original?: string | null;
-                        sourceLang?: string | null;
-                      }>;
-                    }>(`/chat/threads/${t.publicId}`)
-                      .then((th) => setActiveChat(th))
-                      .catch((e) => setError(String(e.message || e)));
-                  }}
-                >
-                  <strong>{t.listing?.title || t.publicId}</strong>
-                  <div className="panel-muted">
-                    {t.guestName || 'Buyer'}
-                    {t.buyerLocale ? ` · ${t.buyerLocale}` : ''} · {t.messageCount || 0} · {t.preview || ''}
-                  </div>
-                </button>
-              ))}
-            </div>
             {!chatThreads.length ? <p className="panel-muted">{copy.seller_chat_empty}</p> : null}
-
-            {activeChat ? (
-              <div className="pk-chat__panel" style={{ marginTop: '1rem' }}>
-                <div className="pk-chat__msgs">
-                  {activeChat.messages.map((m) => (
-                    <div key={m.id} className={`pk-chat__bubble pk-chat__bubble--${m.senderRole.toLowerCase()}`}>
-                      <span className="pk-chat__role">
-                        {m.senderRole}
-                        {m.sourceLang ? ` · ${m.sourceLang}` : ''}
-                      </span>
-                      <p>{m.text || m.body}</p>
-                      {m.original ? (
-                        <p className="pk-chat__original">
-                          <span>{copy.chat_staff_original}</span>
-                          {m.original}
-                        </p>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-                <form
-                  className="pk-chat__form"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!chatReply.trim() || !activeChatId) return;
-                    setBusy(true);
-                    void apiAuthed<{
-                      thread: {
+            <div className="wa-inbox">
+              <div className="wa-inbox__list">
+                <div className="wa-inbox__list-head">{copy.seller_tab_chat}</div>
+                {chatThreads.map((t) => (
+                  <button
+                    key={t.publicId}
+                    type="button"
+                    className={`wa-inbox__row${activeChatId === t.publicId ? ' is-active' : ''}`}
+                    onClick={() => {
+                      setActiveChatId(t.publicId);
+                      void apiAuthed<{
                         publicId: string;
-                        messages: Array<{ id: string; senderRole: string; body: string }>;
-                      };
-                    }>(`/chat/threads/${activeChatId}/seller-messages`, {
-                      method: 'POST',
-                      json: { body: chatReply.trim() },
-                    })
-                      .then((r) => {
-                        setActiveChat(r.thread);
-                        setChatReply('');
-                        if (orgId) void loadOrgData(orgId);
-                      })
-                      .catch((err) => setError(String(err.message || err)))
-                      .finally(() => setBusy(false));
-                  }}
-                >
-                  <textarea
-                    value={chatReply}
-                    onChange={(e) => setChatReply(e.target.value)}
-                    rows={2}
-                    placeholder={copy.seller_chat_reply}
-                  />
-                  <button className="mp-btn mp-btn--primary" type="submit" disabled={busy || !chatReply.trim()}>
-                    {copy.chat_send}
+                        buyerLocale?: string | null;
+                        messages: Array<{
+                          id: string;
+                          senderRole: string;
+                          text?: string;
+                          body: string;
+                          original?: string | null;
+                          sourceLang?: string | null;
+                          createdAt?: string;
+                        }>;
+                      }>(`/chat/threads/${t.publicId}`)
+                        .then((th) => setActiveChat(th))
+                        .catch((e) => setError(String(e.message || e)));
+                    }}
+                  >
+                    <strong>{t.listing?.title || t.publicId}</strong>
+                    <span>
+                      {t.guestName || 'Buyer'}
+                      {t.buyerLocale ? ` · ${t.buyerLocale}` : ''} · {t.messageCount || 0}
+                    </span>
+                    {t.preview ? <em>{t.preview}</em> : null}
                   </button>
-                </form>
+                ))}
               </div>
-            ) : null}
+              <div className="wa-inbox__thread">
+                {activeChat ? (
+                  <WaChatThread
+                    mode="staff"
+                    title={activeChat.messages ? chatThreads.find((t) => t.publicId === activeChatId)?.listing?.title || copy.seller_tab_chat : copy.seller_tab_chat}
+                    subtitle={[
+                      chatThreads.find((t) => t.publicId === activeChatId)?.guestName || 'Buyer',
+                      activeChat.buyerLocale ? `${copy.chat_buyer_lang}: ${activeChat.buyerLocale}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                    statusBadge={copy.chat_online}
+                    messages={activeChat.messages}
+                    roleLabel={(role) => {
+                      const r = role.toUpperCase();
+                      if (r === 'BUYER') return copy.chat_you || 'خریدار';
+                      if (r === 'SELLER') return copy.chat_seller || 'فروشنده';
+                      if (r === 'ASSISTANT') return copy.chat_assistant || 'دستیار';
+                      if (r === 'ADMIN') return copy.chat_admin || 'ادمین';
+                      return copy.chat_system || 'سیستم';
+                    }}
+                    originalLabel={copy.chat_staff_original}
+                    value={chatReply}
+                    onChange={setChatReply}
+                    onSubmit={() => {
+                      if (!chatReply.trim() || !activeChatId) return;
+                      setBusy(true);
+                      void apiAuthed<{
+                        thread: {
+                          publicId: string;
+                          buyerLocale?: string | null;
+                          messages: Array<{
+                            id: string;
+                            senderRole: string;
+                            text?: string;
+                            body: string;
+                            original?: string | null;
+                            sourceLang?: string | null;
+                            createdAt?: string;
+                          }>;
+                        };
+                      }>(`/chat/threads/${activeChatId}/seller-messages`, {
+                        method: 'POST',
+                        json: { body: chatReply.trim() },
+                      })
+                        .then((r) => {
+                          setActiveChat(r.thread);
+                          setChatReply('');
+                          if (orgId) void loadOrgData(orgId);
+                        })
+                        .catch((err) => setError(String(err.message || err)))
+                        .finally(() => setBusy(false));
+                    }}
+                    placeholder={copy.seller_chat_reply}
+                    sendLabel={copy.chat_send}
+                    busy={busy}
+                    emptyLabel={copy.chat_empty}
+                  />
+                ) : (
+                  <div className="wa-inbox__empty">
+                    <p>{copy.admin_chat_pick || 'یک گفتگو را انتخاب کنید'}</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </section>
         ) : null}
 

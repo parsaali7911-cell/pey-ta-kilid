@@ -12,6 +12,7 @@ import {
 } from '@/lib/auth-client';
 import { apiUrl } from '@/lib/api';
 import type { Locale } from '@/lib/i18n-public';
+import { WaChatThread } from '@/components/commerce/WaChatThread';
 
 type PendingListing = {
   id: string;
@@ -424,13 +425,14 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
               {chatThreads.length ? <span className="panel-badge panel-badge--danger">{chatThreads.length}</span> : null}
             </h2>
             {!chatThreads.length ? <p className="panel-muted">{copy.admin_chat_empty}</p> : null}
-            <div className="admin-inbox__layout">
-              <div className="admin-inbox__list">
+            <div className="wa-inbox">
+              <div className="wa-inbox__list">
+                <div className="wa-inbox__list-head">{copy.admin_tab_inbox}</div>
                 {chatThreads.map((t) => (
                   <button
                     key={t.publicId}
                     type="button"
-                    className={`admin-inbox__row${activeChatId === t.publicId ? ' is-active' : ''}`}
+                    className={`wa-inbox__row${activeChatId === t.publicId ? ' is-active' : ''}`}
                     onClick={() => void openChat(t.publicId)}
                   >
                     <strong>{t.listing.title}</strong>
@@ -442,63 +444,51 @@ export default function AdminClient({ locale, copy }: { locale: Locale; copy: Re
                   </button>
                 ))}
               </div>
-              <div className="admin-inbox__thread">
+              <div className="wa-inbox__thread">
                 {activeChat ? (
-                  <>
-                    <div className="admin-inbox__thread-head">
-                      <div>
-                        <strong>{activeChat.listing.title}</strong>
-                        <span className="panel-muted">
-                          {activeChat.listing.sellerName || ''}
-                          {activeChat.buyerLocale ? ` · ${copy.chat_buyer_lang}: ${activeChat.buyerLocale}` : ''}
-                        </span>
-                      </div>
+                  <WaChatThread
+                    mode="staff"
+                    title={activeChat.listing.title}
+                    subtitle={[
+                      activeChat.listing.sellerName || '',
+                      activeChat.buyerLocale ? `${copy.chat_buyer_lang}: ${activeChat.buyerLocale}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                    statusBadge={copy.chat_online}
+                    messages={activeChat.messages}
+                    roleLabel={(role) => {
+                      const r = role.toUpperCase();
+                      if (r === 'BUYER') return copy.chat_you || 'خریدار';
+                      if (r === 'SELLER') return copy.chat_seller || 'فروشنده';
+                      if (r === 'ASSISTANT') return copy.chat_assistant || 'دستیار';
+                      if (r === 'ADMIN') return copy.chat_admin || 'ادمین';
+                      return copy.chat_system || 'سیستم';
+                    }}
+                    originalLabel={copy.chat_staff_original}
+                    value={chatReply}
+                    onChange={setChatReply}
+                    onSubmit={() => void sendAdminChat()}
+                    placeholder={copy.admin_chat_reply}
+                    sendLabel={copy.chat_send}
+                    busy={!!busyId}
+                    emptyLabel={copy.chat_empty}
+                    headerActions={
                       <button
                         type="button"
-                        className="mp-btn"
+                        className="btn ghost"
+                        style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.35)' }}
                         disabled={busyId === activeChat.publicId}
                         onClick={() => void resolveChat(activeChat.publicId)}
                       >
                         {copy.admin_chat_resolve}
                       </button>
-                    </div>
-                    <div className="pk-chat__msgs">
-                      {activeChat.messages.map((m) => (
-                        <div key={m.id} className={`pk-chat__bubble pk-chat__bubble--${m.senderRole.toLowerCase()}`}>
-                          <span className="pk-chat__role">
-                            {m.senderRole}
-                            {m.sourceLang ? ` · ${m.sourceLang}` : ''}
-                          </span>
-                          <p>{m.text || m.body}</p>
-                          {m.original ? (
-                            <p className="pk-chat__original">
-                              <span>{copy.chat_staff_original}</span>
-                              {m.original}
-                            </p>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
-                    <form
-                      className="pk-chat__form"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void sendAdminChat();
-                      }}
-                    >
-                      <textarea
-                        value={chatReply}
-                        onChange={(e) => setChatReply(e.target.value)}
-                        rows={2}
-                        placeholder={copy.admin_chat_reply}
-                      />
-                      <button type="submit" className="mp-btn mp-btn--primary" disabled={!chatReply.trim() || !!busyId}>
-                        {copy.chat_send}
-                      </button>
-                    </form>
-                  </>
+                    }
+                  />
                 ) : (
-                  <p className="panel-muted">{copy.admin_chat_pick}</p>
+                  <div className="wa-inbox__empty">
+                    <p>{copy.admin_chat_pick}</p>
+                  </div>
                 )}
               </div>
             </div>

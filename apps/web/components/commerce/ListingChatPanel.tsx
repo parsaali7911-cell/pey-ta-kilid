@@ -1,20 +1,15 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { apiUrl } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth-client';
 import type { Locale } from '@/lib/i18n-public';
+import { WaChatThread, type WaChatMessage } from '@/components/commerce/WaChatThread';
 
-type ChatMessage = {
-  id: string;
+type ChatMessage = WaChatMessage & {
   senderRole: 'BUYER' | 'SELLER' | 'ASSISTANT' | 'ADMIN' | 'SYSTEM';
-  text?: string;
-  body: string;
   bodyFa?: string | null;
   bodyForBuyer?: string | null;
-  sourceLang?: string | null;
-  original?: string | null;
-  createdAt: string;
 };
 
 type ChatThread = {
@@ -82,18 +77,7 @@ export function ListingChatPanel({
 
   useEffect(() => {
     if (!open || !tokenForListing) return;
-    void (async () => {
-      try {
-        const qs = new URLSearchParams({ guestToken: tokenForListing });
-        const res = await fetch(apiUrl(`/chat/threads/${tokenForListing}?${qs}`), {
-          headers: authHeaders,
-        });
-        // publicId is not guestToken — reload via start endpoint instead
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, [open, tokenForListing, authHeaders]);
+  }, [open, tokenForListing]);
 
   async function ensureThread(firstMessage?: string) {
     const access = getAccessToken();
@@ -120,10 +104,8 @@ export function ListingChatPanel({
         ...guest,
         name: guest.name,
         phone: guest.phone,
-        tokens: { ...guest.tokens, [listingSlug]: t.guestToken },
+        tokens: { ...guest.tokens, [listingSlug]: t.guestToken, [`${listingSlug}:id`]: t.publicId },
       };
-      // Also store publicId mapping: reuse tokens map with publicId key
-      next.tokens[`${listingSlug}:id`] = t.publicId;
       setGuest(next);
       saveGuest(next);
     } else if (t.publicId) {
@@ -137,8 +119,7 @@ export function ListingChatPanel({
     return t;
   }
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function sendMessage() {
     const body = text.trim();
     if (!body) return;
     setBusy(true);
@@ -200,13 +181,21 @@ export function ListingChatPanel({
     }
   }
 
-  const roleLabel = (role: ChatMessage['senderRole']) => {
-    if (role === 'BUYER') return copy.chat_you || 'شما';
-    if (role === 'SELLER') return sellerName || copy.chat_seller || 'فروشنده';
-    if (role === 'ASSISTANT') return copy.chat_assistant || 'دستیار کالا';
-    if (role === 'ADMIN') return copy.chat_admin || 'پشتیبانی سایت';
+  const roleLabel = (role: string) => {
+    const r = role.toUpperCase();
+    if (r === 'BUYER') return copy.chat_you || 'شما';
+    if (r === 'SELLER') return sellerName || copy.chat_seller || 'فروشنده';
+    if (r === 'ASSISTANT') return copy.chat_assistant || 'دستیار کالا';
+    if (r === 'ADMIN') return copy.chat_admin || 'پشتیبانی سایت';
     return copy.chat_system || 'سیستم';
   };
+
+  const hint =
+    locale === 'fa'
+      ? copy.chat_hint ||
+        'اول دستیار جواب می‌دهد؛ در صورت نیاز ادمین وصل می‌شود. پیام غیر فارسی برای تیم ترجمه می‌شود.'
+      : copy.chat_hint_i18n ||
+        'Write in your language — the team reads Persian via translation; you see replies in your language.';
 
   return (
     <div className="pk-chat">
@@ -215,72 +204,47 @@ export function ListingChatPanel({
           {copy.chat_open || 'گفتگو درباره این کالا'}
         </button>
       ) : (
-        <div className="pk-chat__panel">
-          <div className="pk-chat__head">
-            <strong>{copy.chat_title || 'گفتگوی کالا'}</strong>
-            <span className="pk-chat__sub">
-              {sellerName ? `${copy.chat_with_seller || 'با'} ${sellerName}` : copy.chat_title}
-            </span>
-            {thread?.escalationStatus === 'OPEN' ? (
-              <span className="pk-chat__badge">{copy.chat_escalated_badge || 'متصل به پشتیبانی'}</span>
-            ) : null}
-          </div>
-
-          {!getAccessToken() ? (
-            <div className="pk-chat__guest">
-              <label>
-                {copy.chat_guest_name || 'نام شما'}
-                <input
-                  value={guest.name}
-                  onChange={(e) => setGuest({ ...guest, name: e.target.value })}
-                  placeholder={copy.chat_guest_name_ph || 'مثلاً علی'}
-                />
-              </label>
-              <label>
-                {copy.chat_guest_phone || 'موبایل (اختیاری)'}
-                <input
-                  value={guest.phone}
-                  onChange={(e) => setGuest({ ...guest, phone: e.target.value })}
-                  placeholder="09…"
-                />
-              </label>
-            </div>
-          ) : null}
-
-          <div className="pk-chat__msgs" aria-live="polite">
-            {(thread?.messages || []).length === 0 ? (
-              <p className="pk-chat__empty">{copy.chat_empty || 'اولین پیام را بنویسید — قیمت، موجودی یا سؤال…'}</p>
-            ) : (
-              thread!.messages.map((m) => (
-                <div key={m.id} className={`pk-chat__bubble pk-chat__bubble--${m.senderRole.toLowerCase()}`}>
-                  <span className="pk-chat__role">{roleLabel(m.senderRole)}</span>
-                  <p>{m.text || m.body}</p>
-                </div>
-              ))
-            )}
-          </div>
-
-          <form className="pk-chat__form" onSubmit={onSubmit}>
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={2}
-              placeholder={copy.chat_placeholder || 'پیام خود را بنویسید…'}
-              disabled={busy}
-            />
-            <button type="submit" className="mp-btn mp-btn--primary" disabled={busy || !text.trim()}>
-              {busy ? '…' : copy.chat_send || 'ارسال'}
-            </button>
-          </form>
-          {error ? <p className="pk-chat__err">{error}</p> : null}
-          <p className="pk-chat__hint">
-            {locale === 'fa'
-              ? copy.chat_hint ||
-                'اول دستیار جواب می‌دهد؛ در صورت نیاز ادمین وصل می‌شود. پیام غیر فارسی برای تیم ترجمه می‌شود.'
-              : copy.chat_hint_i18n ||
-                'Write in your language — the team reads Persian via translation; you see replies in your language.'}
-          </p>
-        </div>
+        <WaChatThread
+          mode="buyer"
+          title={sellerName || copy.chat_title || 'گفتگوی کالا'}
+          subtitle={copy.chat_title || 'گفتگوی کالا'}
+          statusBadge={
+            thread?.escalationStatus === 'OPEN' ? copy.chat_escalated_badge || 'پشتیبانی' : copy.chat_online || 'آنلاین'
+          }
+          messages={thread?.messages || []}
+          roleLabel={roleLabel}
+          value={text}
+          onChange={setText}
+          onSubmit={() => void sendMessage()}
+          placeholder={copy.chat_placeholder || 'پیام…'}
+          sendLabel={copy.chat_send || 'ارسال'}
+          busy={busy}
+          emptyLabel={copy.chat_empty || 'اولین پیام را بنویسید.'}
+          error={error}
+          footerHint={hint}
+          topSlot={
+            !getAccessToken() ? (
+              <div className="wa-chat__guest">
+                <label>
+                  {copy.chat_guest_name || 'نام شما'}
+                  <input
+                    value={guest.name}
+                    onChange={(e) => setGuest({ ...guest, name: e.target.value })}
+                    placeholder={copy.chat_guest_name_ph || 'مثلاً علی'}
+                  />
+                </label>
+                <label>
+                  {copy.chat_guest_phone || 'موبایل (اختیاری)'}
+                  <input
+                    value={guest.phone}
+                    onChange={(e) => setGuest({ ...guest, phone: e.target.value })}
+                    placeholder="09…"
+                  />
+                </label>
+              </div>
+            ) : null
+          }
+        />
       )}
     </div>
   );
