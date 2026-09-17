@@ -59,7 +59,11 @@ export function PublicHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
   return (
     <header className={headerClass}>
       <div className="header-top-row">
-        <BrandLogo href={`/${locale}`} label={copy.brand} />
+        {isHome ? (
+          <span className="brand-logo brand-logo--spacer" aria-hidden />
+        ) : (
+          <BrandLogo href={`/${locale}`} label={copy.brand} />
+        )}
 
         {!isHome ? (
           <div className="header-search-slot header-search-slot--desktop">

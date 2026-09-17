@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { SiteSearchBar } from '@/components/search/SiteSearchBar';
 import type { Locale } from '@/lib/i18n-public';
 
-/** Mixed examples — intent is inferred from the text (no mode tabs). */
+/** Mixed examples — intent inferred from text (no mode tabs). */
 const EXAMPLES: Record<Locale, string[]> = {
   fa: [
     'سرامیک کف ۸۰ برای ویلا در کرج',
@@ -26,8 +26,8 @@ const EXAMPLES: Record<Locale, string[]> = {
 };
 
 /**
- * ChatGPT-style home: one short prompt + composer. No modes, no essays.
- * Buy / sell / pro is understood from what the user writes.
+ * ChatGPT-style home: brand lockup on top, search under it.
+ * Colors follow the industrial peytakilid logo (yellow / charcoal / blue-red).
  */
 export function MarketplaceHero({
   copy,
@@ -40,11 +40,20 @@ export function MarketplaceHero({
   const examples = useMemo(() => EXAMPLES[locale] || EXAMPLES.fa, [locale]);
 
   return (
-    <section className="ai-hero ai-hero--gpt" aria-labelledby="ai-hero-title">
+    <section className="ai-hero ai-hero--brand" aria-label={copy.brand}>
       <div className="ai-hero__inner">
-        <h1 id="ai-hero-title" className="ai-hero__title">
-          {copy.mp_hero_title}
-        </h1>
+        <div className="ai-hero__logo">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/peytakilid-hero.png"
+            alt={copy.brand}
+            width={420}
+            height={560}
+            decoding="async"
+          />
+        </div>
+
+        <h1 className="sr-only">{copy.mp_hero_title}</h1>
 
         <div className="ai-hero__composer">
           <SiteSearchBar

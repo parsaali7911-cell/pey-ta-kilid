@@ -11,24 +11,22 @@ export function BrandLogo({
 }) {
   return (
     <a href={href} className={`brand-logo ${className}`.trim()} aria-label={label}>
-      <span
-        className="brand-logo-img"
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        className="brand-logo-photo"
+        src="/brand/peytakilid-mark.png"
+        alt=""
+        width={size}
+        height={size}
+        decoding="async"
         style={{
           width: size,
           height: size,
+          objectFit: 'cover',
+          objectPosition: 'center 20%',
           borderRadius: 12,
-          display: 'grid',
-          placeItems: 'center',
-          background: 'linear-gradient(145deg, #2a6b5c, #1e4a40)',
-          color: '#fff',
-          fontSize: Math.max(11, Math.round(size * 0.28)),
-          fontWeight: 700,
-          letterSpacing: '0.02em',
         }}
-        aria-hidden
-      >
-        PK
-      </span>
+      />
       <span className="brand-logo-text">{label}</span>
     </a>
   );
