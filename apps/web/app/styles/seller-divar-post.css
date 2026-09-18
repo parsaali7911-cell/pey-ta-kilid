@@ -1,0 +1,340 @@
+/* Divar-style seller post-ad flow */
+
+.divar-post-launch {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.75rem 0 1.25rem;
+}
+
+.divar-post-launch__btn {
+  font-size: 1rem !important;
+  min-height: 52px;
+}
+
+.divar-post {
+  background: #f5f5f5;
+  border: 1px solid var(--sc-line);
+  border-radius: 16px;
+  margin: 0.75rem 0 1.5rem;
+  overflow: hidden;
+}
+
+.divar-post__head {
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: auto 1fr auto;
+  padding: 0.75rem 0.9rem;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.divar-post__head strong {
+  font-size: 1.05rem;
+  text-align: center;
+}
+
+.divar-post__back {
+  background: transparent;
+  border: 0;
+  color: var(--sc-teal-deep);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  padding: 0.35rem 0.25rem;
+}
+
+.divar-post__step {
+  color: #888;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.divar-post__body {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.75rem 0.75rem calc(5.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+.divar-post__section {
+  background: #fff;
+  border-radius: 14px;
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.95rem 1rem;
+}
+
+.divar-post__section h3 {
+  font-size: 0.95rem;
+  font-weight: 750;
+  margin: 0;
+}
+
+.divar-post__photos {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.divar-post__photo,
+.divar-post__photo-add {
+  aspect-ratio: 1;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+}
+
+.divar-post__photo {
+  background: #ececec;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  margin: 0;
+}
+
+.divar-post__photo img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.divar-post__photo.is-cover {
+  outline: 2px solid var(--sc-teal);
+  outline-offset: -2px;
+}
+
+.divar-post__cover-badge {
+  background: rgba(30, 74, 64, 0.92);
+  border-radius: 999px;
+  bottom: 0.35rem;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  inset-inline-start: 0.35rem;
+  padding: 0.15rem 0.45rem;
+  position: absolute;
+}
+
+.divar-post__photo-x {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.55);
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  display: grid;
+  font-size: 1rem;
+  height: 1.6rem;
+  inset-inline-end: 0.3rem;
+  justify-items: center;
+  position: absolute;
+  top: 0.3rem;
+  width: 1.6rem;
+}
+
+.divar-post__photo-add {
+  align-content: center;
+  background: #fafafa;
+  border: 1.5px dashed rgba(0, 0, 0, 0.18);
+  color: var(--sc-teal-deep);
+  cursor: pointer;
+  display: grid;
+  gap: 0.2rem;
+  font: inherit;
+  justify-items: center;
+}
+
+.divar-post__photo-add span {
+  font-size: 1.6rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.divar-post__photo-add em {
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 650;
+}
+
+.divar-post__photo-actions {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: 1fr 1fr;
+}
+
+.divar-post__field {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.divar-post__field input,
+.divar-post__field textarea,
+.divar-post__field select,
+.divar-post__search {
+  background: #fafafa;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 500;
+  padding: 0.75rem 0.85rem;
+  width: 100%;
+}
+
+.divar-post__field textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.divar-post__row {
+  align-items: center;
+  background: #fafafa;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.85rem 0.95rem;
+  text-align: start;
+  width: 100%;
+}
+
+.divar-post__row span {
+  color: #666;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.divar-post__row strong {
+  color: var(--sc-ink);
+  font-size: 0.9rem;
+  font-weight: 700;
+  max-width: 65%;
+  overflow: hidden;
+  text-align: end;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.divar-post__picker {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  display: grid;
+  gap: 0.55rem;
+  overflow: hidden;
+  padding: 0.65rem;
+}
+
+.divar-post__crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.divar-post__crumbs button {
+  background: rgba(42, 107, 92, 0.08);
+  border: 0;
+  border-radius: 999px;
+  color: var(--sc-teal-deep);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  padding: 0.3rem 0.65rem;
+}
+
+.divar-post__list {
+  display: grid;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  padding: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.divar-post__list button {
+  align-items: center;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  justify-content: space-between;
+  padding: 0.85rem 0.35rem;
+  text-align: start;
+  width: 100%;
+}
+
+.divar-post__list button.is-active,
+.divar-post__list button:active {
+  background: rgba(42, 107, 92, 0.06);
+  color: var(--sc-teal-deep);
+}
+
+.divar-post__list em {
+  color: #999;
+  font-style: normal;
+}
+
+.divar-post__attrs {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.divar-post__price-row {
+  align-items: center;
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: 1fr auto;
+}
+
+.divar-post__price-row em {
+  color: var(--sc-muted);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.divar-post__more {
+  background: transparent;
+  border: 0;
+  color: var(--sc-teal-deep);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 0.25rem 0;
+  text-align: start;
+}
+
+.divar-post__sticky {
+  background: linear-gradient(180deg, transparent, rgba(245, 245, 245, 0.96) 28%);
+  bottom: var(--pk-tabbar-h, 0px);
+  inset-inline: 0;
+  padding: 0.85rem 0.75rem calc(0.85rem + env(safe-area-inset-bottom, 0px));
+  position: sticky;
+  z-index: 6;
+}
+
+@media (max-width: 720px) {
+  .divar-post {
+    border-radius: 0;
+    border-inline: 0;
+    margin-inline: -0.65rem;
+  }
+
+  .divar-post__photos {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .panel-card:has(.divar-post) {
+    padding-inline: 0.65rem;
+  }
+}

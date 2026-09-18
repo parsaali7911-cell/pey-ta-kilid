@@ -724,6 +724,27 @@ export default function SellerClient({
         {tab === 'listing' ? (
           <section className="panel-card">
             <h2>{copy.seller_listings}</h2>
+            <p className="panel-muted">{copy.seller_listing_flow}</p>
+
+            <SellerListingWizard
+              locale={locale}
+              copy={copy}
+              orgId={orgId}
+              categories={categories}
+              facilities={facilities}
+              busy={busy}
+              setBusy={setBusy}
+              setError={setError}
+              setMsg={setMsg}
+              initialCategorySlug={initialCategorySlug}
+              initialCity={initialCity}
+              autoOpen={openWizard}
+              onCreated={(id) => {
+                setMediaListingId(id);
+                if (orgId) void loadOrgData(orgId);
+              }}
+            />
+
             <ul className="panel-list">
               {listings.map((l) => {
                 const canEditContent =
@@ -857,24 +878,6 @@ export default function SellerClient({
                 </div>
               </div>
             ) : null}
-
-            <SellerListingWizard
-              locale={locale}
-              copy={copy}
-              orgId={orgId}
-              categories={categories}
-              facilities={facilities}
-              busy={busy}
-              setBusy={setBusy}
-              setError={setError}
-              setMsg={setMsg}
-              initialCategorySlug={initialCategorySlug}
-              initialCity={initialCity}
-              onCreated={(id) => {
-                setMediaListingId(id);
-                if (orgId) void loadOrgData(orgId);
-              }}
-            />
           </section>
         ) : null}
 
