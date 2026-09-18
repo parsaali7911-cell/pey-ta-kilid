@@ -140,6 +140,9 @@ export async function register(input: {
   email: string;
   password: string;
   fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  nationalId?: string;
 }): Promise<TokenPair> {
   const tokens = await apiAuthPost<TokenPair>('/auth/register', input);
   saveTokens(tokens);

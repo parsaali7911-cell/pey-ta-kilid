@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { apiAuthed, apiAuthedForm } from '@/lib/auth-client';
 import { apiUrl } from '@/lib/api';
 import type { Locale } from '@/lib/i18n-public';
+import { LocationMapPicker, type MapLocationValue } from '@/components/LocationMapPicker';
 
 export type WizardCategory = {
   id: string;
@@ -32,11 +33,10 @@ type AttrDef = {
   enumOptions?: string[] | null;
 };
 
-type Screen = 'compose' | 'details';
+type Screen = 1 | 2 | 3;
 
 function catLabel(c: WizardCategory, locale: Locale) {
-  if (locale === 'fa') return c.nameFa || c.name || c.nameEn || c.slug;
-  if (locale === 'ar') return c.nameFa || c.name || c.nameEn || c.slug;
+  if (locale === 'fa' || locale === 'ar') return c.nameFa || c.name || c.nameEn || c.slug;
   return c.nameEn || c.name || c.nameFa || c.slug;
 }
 
@@ -79,10 +79,23 @@ function slugify(input: string) {
   return ascii || 'listing';
 }
 
+function formatTomanWords(n: number, locale: Locale): string {
+  if (!Number.isFinite(n) || n <= 0) return '';
+  if (locale !== 'fa') return `${n.toLocaleString('en-US')} Toman`;
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(n % 1_000_000_000 ? 1 : 0)} میلیارد تومان`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)} میلیون تومان`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)} هزار تومان`;
+  return `${n} تومان`;
+}
+
+function formatGrouped(raw: string) {
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
 /**
- * Divar-style post-ad flow:
- * 1) photos + title + description
- * 2) category → location → features (attrs) → price (تومان) → submit
+ * Divar-style 3-page post-ad flow (photos → category/location/features → price).
  */
 export function SellerListingWizard({
   locale,
@@ -114,7 +127,7 @@ export function SellerListingWizard({
   autoOpen?: boolean;
 }) {
   const [open, setOpen] = useState(Boolean(autoOpen || initialCategorySlug));
-  const [screen, setScreen] = useState<Screen>('compose');
+  const [screen, setScreen] = useState<Screen>(1);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [title, setTitle] = useState('');
@@ -122,19 +135,20 @@ export function SellerListingWizard({
   const [categoryId, setCategoryId] = useState('');
   const [browseParentId, setBrowseParentId] = useState<string | null>(null);
   const [catQuery, setCatQuery] = useState('');
-  const [catPickerOpen, setCatPickerOpen] = useState(false);
+  const [sheet, setSheet] = useState<'category' | 'location' | 'attr' | null>(null);
+  const [activeAttr, setActiveAttr] = useState<AttrDef | null>(null);
+  const [mapLoc, setMapLoc] = useState<MapLocationValue | null>(
+    initialCity ? { latitude: 35.6892, longitude: 51.389, city: initialCity, label: initialCity } : null,
+  );
   const [facilityId, setFacilityId] = useState(facilities[0]?.id || '');
-  const [cityFallback, setCityFallback] = useState(initialCity || '');
   const [attrDefs, setAttrDefs] = useState<AttrDef[]>([]);
   const [attrValues, setAttrValues] = useState<Record<string, string>>({});
   const [priceToman, setPriceToman] = useState('');
+  const [priceFixed, setPriceFixed] = useState(false);
+  const [wantTrade, setWantTrade] = useState(false);
   const [stockQty, setStockQty] = useState('');
-  const [showMore, setShowMore] = useState(false);
-  const [moq, setMoq] = useState('1');
-  const [leadDays, setLeadDays] = useState('7');
   const [uomCode, setUomCode] = useState('m2');
   const galleryRef = useRef<HTMLInputElement>(null);
-  const cameraRef = useRef<HTMLInputElement>(null);
 
   const childrenMap = useMemo(() => buildChildrenMap(categories), [categories]);
   const selectedPath = useMemo(
@@ -157,7 +171,7 @@ export function SellerListingWizard({
         return label.includes(q) || c.slug.includes(q);
       })
       .filter((c) => !(childrenMap.get(c.id) || []).length)
-      .slice(0, 16);
+      .slice(0, 20);
   }, [catQuery, categories, childrenMap, locale]);
 
   useEffect(() => {
@@ -171,9 +185,6 @@ export function SellerListingWizard({
     setOpen(true);
     setCategoryId(hit.id);
     setBrowseParentId(hit.parentId ?? null);
-    if (!(buildChildrenMap(categories).get(hit.id) || []).length) {
-      setScreen('details');
-    }
   }, [initialCategorySlug, categories]);
 
   useEffect(() => {
@@ -191,18 +202,13 @@ export function SellerListingWizard({
     }
     const selected = categories.find((c) => c.id === categoryId);
     setUomCode(selected?.defaultUomCode || 'm2');
-
     void fetch(apiUrl(`/categories/${categoryId}/attributes`))
       .then((r) => r.json())
       .then((defs) => {
         const list = Array.isArray(defs) ? (defs as AttrDef[]) : [];
         setAttrDefs(list);
         const next: Record<string, string> = {};
-        for (const d of list) {
-          if (d.dataType === 'ENUM' && Array.isArray(d.enumOptions) && d.enumOptions[0]) {
-            next[d.code] = String(d.enumOptions[0]);
-          } else next[d.code] = '';
-        }
+        for (const d of list) next[d.code] = '';
         setAttrValues(next);
       })
       .catch(() => {
@@ -210,6 +216,29 @@ export function SellerListingWizard({
         setAttrValues({});
       });
   }, [categoryId, isLeaf, categories]);
+
+  function resetAll() {
+    setScreen(1);
+    setPendingFiles([]);
+    setPreviews((prev) => {
+      for (const u of prev) URL.revokeObjectURL(u);
+      return [];
+    });
+    setTitle('');
+    setDescription('');
+    setCategoryId('');
+    setBrowseParentId(null);
+    setCatQuery('');
+    setSheet(null);
+    setMapLoc(initialCity ? { latitude: 35.6892, longitude: 51.389, city: initialCity, label: initialCity } : null);
+    setAttrDefs([]);
+    setAttrValues({});
+    setPriceToman('');
+    setPriceFixed(false);
+    setWantTrade(false);
+    setStockQty('');
+    setError('');
+  }
 
   function addFiles(files: File[]) {
     const next = [...pendingFiles, ...files].slice(0, 8);
@@ -236,21 +265,61 @@ export function SellerListingWizard({
       setBrowseParentId(id);
       return;
     }
-    setCatPickerOpen(false);
+    setSheet(null);
     setCatQuery('');
   }
 
-  function goToDetails() {
+  function goNext() {
     setError('');
-    if (!pendingFiles.length) {
-      setError(copy.divar_need_photo || 'حداقل یک عکس از آگهی لازم است');
+    if (screen === 1) {
+      if (!pendingFiles.length) {
+        setError(copy.divar_need_photo || 'حداقل یک عکس لازم است');
+        return;
+      }
+      if (title.trim().length < 2) {
+        setError(copy.divar_need_title || 'عنوان آگهی را بنویسید');
+        return;
+      }
+      if (description.trim().length < 2) {
+        setError(copy.divar_need_desc || 'توضیحات آگهی را بنویسید');
+        return;
+      }
+      setScreen(2);
       return;
     }
-    if (!title.trim() || title.trim().length < 3) {
-      setError(copy.divar_need_title || 'عنوان آگهی را بنویسید');
+    if (screen === 2) {
+      if (!categoryId || !isLeaf) {
+        setError(copy.seller_wizard_pick_leaf);
+        setSheet('category');
+        return;
+      }
+      if (!mapLoc && !facilityId) {
+        setError(copy.divar_need_location || 'مکان آگهی را مشخص کنید');
+        setSheet('location');
+        return;
+      }
+      for (const d of attrDefs.slice(0, 2)) {
+        if (d.required && !(attrValues[d.code] || '').trim()) {
+          setError(`${copy.seller_wizard_need_attr}: ${attrLabel(d, locale)}`);
+          return;
+        }
+      }
+      setScreen(3);
+    }
+  }
+
+  function goBack() {
+    setError('');
+    if (sheet) {
+      setSheet(null);
+      setActiveAttr(null);
       return;
     }
-    setScreen('details');
+    if (screen > 1) {
+      setScreen((s) => (s === 3 ? 2 : 1));
+      return;
+    }
+    setOpen(false);
   }
 
   async function submitAll(e?: FormEvent) {
@@ -259,11 +328,6 @@ export function SellerListingWizard({
     setError('');
     if (!categoryId || !isLeaf) {
       setError(copy.seller_wizard_pick_leaf);
-      setCatPickerOpen(true);
-      return;
-    }
-    if (!facilityId && !cityFallback.trim()) {
-      setError(copy.divar_need_location || 'موقعیت آگهی را مشخص کنید');
       return;
     }
     for (const d of attrDefs) {
@@ -292,10 +356,13 @@ export function SellerListingWizard({
         })
         .filter(Boolean);
 
-      const locNote =
-        !facilityId && cityFallback.trim()
-          ? `${copy.divar_location || 'موقعیت'}: ${cityFallback.trim()}`
-          : '';
+      const extras = [
+        priceFixed ? copy.divar_price_fixed || 'قیمت مقطوع است' : '',
+        wantTrade ? copy.divar_want_trade || 'مایلم معاوضه کنم' : '',
+        mapLoc?.label ? `${copy.divar_location || 'مکان'}: ${mapLoc.label}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
 
       const listing = await apiAuthed<{ id: string; slug: string }>('/seller/listings', {
         method: 'POST',
@@ -304,22 +371,18 @@ export function SellerListingWizard({
           categoryId,
           facilityId: facilityId || undefined,
           title: title.trim(),
-          description: [description.trim(), locNote].filter(Boolean).join('\n\n') || undefined,
+          description: [description.trim(), extras].filter(Boolean).join('\n\n') || undefined,
           slug: `${slugify(title) || 'listing'}-${Date.now().toString(36).slice(-4)}`,
           uomCode: uomCode || 'm2',
-          moq: Number(moq) || 1,
-          leadTimeDays: Number(leadDays) || 7,
+          moq: 1,
+          leadTimeDays: 7,
           attributes,
         },
       });
 
       await apiAuthed(`/seller/listings/${listing.id}/price`, {
         method: 'POST',
-        json: {
-          supplierCost: priceNum,
-          currency: 'IRR',
-          priceType: 'EXW',
-        },
+        json: { supplierCost: priceNum, currency: 'IRR', priceType: 'EXW' },
       });
 
       const stock = Number(stockQty);
@@ -341,21 +404,8 @@ export function SellerListingWizard({
         method: 'POST',
       });
       setMsg(`${copy.seller_listing_submitted}: ${submitted.status}`);
+      resetAll();
       setOpen(false);
-      setScreen('compose');
-      setPendingFiles([]);
-      setPreviews((prev) => {
-        for (const u of prev) URL.revokeObjectURL(u);
-        return [];
-      });
-      setTitle('');
-      setDescription('');
-      setCategoryId('');
-      setBrowseParentId(null);
-      setPriceToman('');
-      setStockQty('');
-      setAttrDefs([]);
-      setAttrValues({});
       onCreated(listing.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
@@ -364,352 +414,407 @@ export function SellerListingWizard({
     }
   }
 
+  const categorySummary = selectedPath.length
+    ? selectedPath.map((p) => catLabel(p, locale)).join(' › ')
+    : '';
+  const locationSummary =
+    mapLoc?.label ||
+    (facilityId
+      ? (() => {
+          const f = facilities.find((x) => x.id === facilityId);
+          return f ? [f.address?.city, f.name].filter(Boolean).join('، ') : '';
+        })()
+      : '');
+
+  const priceNum = Number(String(priceToman).replace(/,/g, '')) || 0;
+  const stepLabel =
+    screen === 1
+      ? copy.divar_page_1 || 'صفحه ۱ از ۳: تصاویر و توضیحات'
+      : screen === 2
+        ? copy.divar_page_2 || 'صفحه ۲ از ۳: دسته و ویژگی‌ها'
+        : copy.divar_page_3 || 'صفحه ۳ از ۳: قیمت و ثبت';
+
   if (!open) {
     return (
-      <div className="divar-post-launch">
+      <div className="dv-launch">
         <button
           type="button"
-          className="mp-btn mp-btn--primary mp-btn--block divar-post-launch__btn"
+          className="dv-btn dv-btn--block"
           disabled={!orgId}
           onClick={() => {
+            resetAll();
             setOpen(true);
-            setScreen('compose');
             setError('');
           }}
         >
-          {copy.divar_post_ad || copy.seller_new_listing || 'ثبت آگهی'}
+          {copy.divar_post_ad || 'ثبت آگهی'}
         </button>
-        <p className="panel-muted">{copy.divar_post_hint || 'مثل دیوار: عکس، توضیحات، بعد دسته و قیمت.'}</p>
       </div>
     );
   }
 
-  const categorySummary = selectedPath.length
-    ? selectedPath.map((p) => catLabel(p, locale)).join(' › ')
-    : copy.divar_pick_category || 'انتخاب دسته';
-
-  const facilitySummary = facilityId
-    ? (() => {
-        const f = facilities.find((x) => x.id === facilityId);
-        if (!f) return copy.divar_pick_location || 'انتخاب موقعیت';
-        return [f.name, f.address?.city, f.address?.province].filter(Boolean).join(' — ');
-      })()
-    : cityFallback.trim() || copy.divar_pick_location || 'انتخاب موقعیت';
-
   return (
-    <div className="divar-post" dir={locale === 'en' ? 'ltr' : 'rtl'}>
-      <header className="divar-post__head">
-        <button
-          type="button"
-          className="divar-post__back"
-          onClick={() => {
-            setError('');
-            if (screen === 'details') {
-              setScreen('compose');
-              return;
-            }
-            setOpen(false);
-          }}
-          disabled={busy}
-        >
-          {copy.seller_wizard_back || 'بازگشت'}
+    <div className="dv-post" dir={locale === 'en' ? 'ltr' : 'rtl'}>
+      <header className="dv-post__head">
+        <button type="button" className="dv-post__clear" onClick={resetAll} disabled={busy}>
+          {copy.divar_clear || 'پاک کردن'}
         </button>
         <strong>{copy.divar_post_ad || 'ثبت آگهی'}</strong>
-        <span className="divar-post__step">
-          {screen === 'compose' ? '۱ / ۲' : '۲ / ۲'}
-        </span>
+        <button type="button" className="dv-post__icon-back" onClick={goBack} disabled={busy} aria-label="back">
+          ‹
+        </button>
       </header>
 
-      {screen === 'compose' ? (
-        <div className="divar-post__body">
-          <section className="divar-post__section">
-            <h3>{copy.divar_photos || 'عکس آگهی'}</h3>
-            <p className="panel-muted">{copy.divar_photos_hint || 'اولین عکس، تصویر اصلی آگهی می‌شود.'}</p>
-            <div className="divar-post__photos">
-              {previews.map((src, i) => (
-                <figure key={src} className={`divar-post__photo${i === 0 ? ' is-cover' : ''}`}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt="" />
-                  {i === 0 ? <span className="divar-post__cover-badge">{copy.divar_cover || 'عکس اصلی'}</span> : null}
-                  <button type="button" className="divar-post__photo-x" onClick={() => removeFile(i)} aria-label="remove">
-                    ×
-                  </button>
-                </figure>
-              ))}
-              {pendingFiles.length < 8 ? (
-                <button type="button" className="divar-post__photo-add" onClick={() => galleryRef.current?.click()}>
-                  <span>+</span>
-                  <em>{copy.divar_add_photo || 'افزودن عکس'}</em>
+      <div className="dv-post__progress" aria-hidden>
+        <span className={screen === 1 ? 'is-on' : screen > 1 ? 'is-done' : ''} />
+        <span className={screen === 2 ? 'is-on' : screen > 2 ? 'is-done' : ''} />
+        <span className={screen === 3 ? 'is-on' : ''} />
+      </div>
+      <p className="dv-post__step">{stepLabel}</p>
+
+      {screen === 1 ? (
+        <div className="dv-post__body">
+          <label className="dv-label">
+            {copy.divar_photos || 'عکس آگهی'} <i>*</i>
+          </label>
+          <div className="dv-photos">
+            {pendingFiles.length < 8 ? (
+              <button type="button" className="dv-photos__add" onClick={() => galleryRef.current?.click()}>
+                <span className="dv-photos__cam" aria-hidden />
+                <em>{copy.divar_add_photo || 'افزودن عکس'}</em>
+              </button>
+            ) : null}
+            {previews.map((src, i) => (
+              <figure key={src} className="dv-photos__item">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src} alt="" />
+                {i === 0 ? <span>{copy.divar_cover || 'عکس اصلی'}</span> : null}
+                <button type="button" className="dv-photos__x" onClick={() => removeFile(i)}>
+                  ×
                 </button>
-              ) : null}
-            </div>
-            <div className="divar-post__photo-actions">
-              <button type="button" className="mp-btn" onClick={() => galleryRef.current?.click()}>
-                {copy.designer_from_gallery || 'گالری'}
-              </button>
-              <button type="button" className="mp-btn" onClick={() => cameraRef.current?.click()}>
-                {copy.designer_from_camera || 'دوربین'}
-              </button>
-            </div>
-            <input
-              ref={galleryRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/*"
-              multiple
-              hidden
-              onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                e.target.value = '';
-                if (files.length) addFiles(files);
-              }}
-            />
-            <input
-              ref={cameraRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              hidden
-              onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                e.target.value = '';
-                if (files.length) addFiles(files);
-              }}
-            />
-          </section>
+              </figure>
+            ))}
+          </div>
+          <input
+            ref={galleryRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            capture={undefined}
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              e.target.value = '';
+              if (files.length) addFiles(files);
+            }}
+          />
 
-          <section className="divar-post__section">
-            <label className="divar-post__field">
-              <span>{copy.divar_title || 'عنوان آگهی'}</span>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={copy.divar_title_ph || 'مثلاً سرامیک کف ۸۰×۸۰ پرسلان'}
-                maxLength={80}
-              />
-            </label>
-            <label className="divar-post__field">
-              <span>{copy.divar_desc || 'توضیحات آگهی'}</span>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={5}
-                placeholder={
-                  copy.divar_desc_ph || 'جزئیات کالا، وضعیت، شرایط فروش و هر نکته‌ای که خریدار باید بداند…'
-                }
-              />
-            </label>
-          </section>
+          <label className="dv-label">
+            {copy.divar_title || 'عنوان آگهی'} <i>*</i>
+          </label>
+          <input className="dv-input" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80} />
 
-          <div className="divar-post__sticky">
-            <button type="button" className="mp-btn mp-btn--primary mp-btn--block" disabled={busy || !orgId} onClick={goToDetails}>
-              {copy.seller_wizard_next || 'بعدی'}
+          <label className="dv-label">
+            {copy.divar_desc || 'توضیحات آگهی'} <i>*</i>
+          </label>
+          <textarea className="dv-input dv-input--area" rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
+
+          <div className="dv-post__footer">
+            <button type="button" className="dv-btn dv-btn--block" disabled={busy} onClick={goNext}>
+              {copy.divar_next || 'بعدی'}
             </button>
           </div>
         </div>
       ) : null}
 
-      {screen === 'details' ? (
-        <form className="divar-post__body" onSubmit={(e) => void submitAll(e)}>
-          <section className="divar-post__section">
-            <h3>{copy.divar_category || 'دسته‌بندی'}</h3>
-            <button
-              type="button"
-              className="divar-post__row"
-              onClick={() => setCatPickerOpen((v) => !v)}
-            >
-              <span>{copy.divar_category || 'دسته'}</span>
-              <strong>{categorySummary}</strong>
+      {screen === 2 ? (
+        <div className="dv-post__body">
+          <h3 className="dv-section-title">{copy.divar_cat_loc_title || 'دسته و محل آگهی'}</h3>
+
+          <button type="button" className="dv-select-row" onClick={() => setSheet('category')}>
+            <span className="dv-select-row__label">
+              {copy.divar_category_short || 'دسته'} <i>*</i>
+            </span>
+            <strong className={categorySummary ? 'has-value' : ''}>
+              {categorySummary || copy.divar_choose || 'انتخاب'}
+              <em>‹</em>
+            </strong>
+          </button>
+          <p className="dv-note">{copy.divar_cat_locked || 'پس از ثبت، دستهٔ آگهی قابل ویرایش نیست'}</p>
+
+          <button type="button" className="dv-select-row" onClick={() => setSheet('location')}>
+            <span className="dv-select-row__label">
+              {copy.divar_ad_place || 'مکان آگهی'} <i>*</i>
+            </span>
+            <strong className={locationSummary ? 'has-value' : ''}>
+              {locationSummary || copy.divar_choose || 'انتخاب'}
+              <em>‹</em>
+            </strong>
+          </button>
+          <p className="dv-note">{copy.divar_city_locked || 'پس از ثبت، شهر آگهی قابل ویرایش نیست'}</p>
+
+          <h3 className="dv-section-title">{copy.divar_features || 'ویژگی‌ها'}</h3>
+          {attrDefs.length ? (
+            attrDefs.slice(0, 4).map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                className="dv-select-row"
+                onClick={() => {
+                  setActiveAttr(d);
+                  setSheet('attr');
+                }}
+              >
+                <span className="dv-select-row__label">
+                  {attrLabel(d, locale)}
+                  {d.required ? ' *' : ''}
+                </span>
+                <strong className={attrValues[d.code] ? 'has-value' : ''}>
+                  {attrValues[d.code] || copy.divar_choose || 'انتخاب'}
+                  <em>‹</em>
+                </strong>
+              </button>
+            ))
+          ) : (
+            <p className="dv-note">
+              {isLeaf ? copy.seller_wizard_no_attrs : copy.divar_pick_category_first || 'اول دسته را انتخاب کنید'}
+            </p>
+          )}
+
+          <div className="dv-post__footer">
+            <button type="button" className="dv-btn dv-btn--block" disabled={busy} onClick={goNext}>
+              {copy.divar_next || 'بعدی'}
             </button>
+          </div>
+        </div>
+      ) : null}
 
-            {catPickerOpen ? (
-              <div className="divar-post__picker">
-                <input
-                  className="divar-post__search"
-                  value={catQuery}
-                  onChange={(e) => setCatQuery(e.target.value)}
-                  placeholder={copy.seller_wizard_cat_search_ph}
-                />
-                {catQuery.trim() ? (
-                  <ul className="divar-post__list">
-                    {searchHits.map((c) => (
-                      <li key={c.id}>
-                        <button type="button" onClick={() => selectCategory(c.id)}>
-                          {pathFor(categories, c.id)
-                            .map((p) => catLabel(p, locale))
-                            .join(' › ')}
-                        </button>
-                      </li>
-                    ))}
-                    {!searchHits.length ? <li className="panel-muted">{copy.seller_wizard_cat_empty}</li> : null}
-                  </ul>
-                ) : (
-                  <>
-                    <div className="divar-post__crumbs">
-                      <button type="button" onClick={() => setBrowseParentId(null)}>
-                        {copy.seller_wizard_browse_root}
-                      </button>
-                      {browsePath.map((p) => (
-                        <button key={p.id} type="button" onClick={() => setBrowseParentId(p.id)}>
-                          {catLabel(p, locale)}
-                        </button>
-                      ))}
-                    </div>
-                    <ul className="divar-post__list">
-                      {browseChildren.map((c) => {
-                        const hasKids = (childrenMap.get(c.id) || []).length > 0;
-                        return (
-                          <li key={c.id}>
-                            <button
-                              type="button"
-                              className={categoryId === c.id ? 'is-active' : undefined}
-                              onClick={() => selectCategory(c.id)}
-                            >
-                              <span>{catLabel(c, locale)}</span>
-                              <em>{hasKids ? '‹' : '✓'}</em>
-                            </button>
-                          </li>
-                        );
-                      })}
-                      {!browseChildren.length ? <li className="panel-muted">{copy.seller_wizard_cat_empty}</li> : null}
-                    </ul>
-                  </>
-                )}
-              </div>
-            ) : null}
-          </section>
-
-          <section className="divar-post__section">
-            <h3>{copy.divar_location || 'موقعیت مکانی آگهی'}</h3>
-            {facilities.length ? (
-              <label className="divar-post__field">
-                <span>{copy.divar_location || 'مکان آگهی'}</span>
-                <select value={facilityId} onChange={(e) => setFacilityId(e.target.value)}>
-                  <option value="">{copy.seller_no_facility}</option>
-                  {facilities.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                      {f.address?.city ? ` — ${f.address.city}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            <label className="divar-post__field">
-              <span>{copy.divar_city || 'شهر / محله'}</span>
-              <input
-                value={cityFallback}
-                onChange={(e) => setCityFallback(e.target.value)}
-                placeholder={copy.divar_city_ph || 'مثلاً کرج، مهرشهر'}
-              />
-            </label>
-            <p className="panel-muted">{facilitySummary}</p>
-          </section>
-
-          <section className="divar-post__section">
-            <h3>{copy.divar_features || 'ویژگی‌ها'}</h3>
-            {attrDefs.length ? (
-              <div className="divar-post__attrs">
-                {attrDefs.map((d) => (
-                  <label key={d.id} className="divar-post__field">
-                    <span>
-                      {attrLabel(d, locale)}
-                      {d.required ? ' *' : ''}
-                      {d.unit ? ` (${d.unit})` : ''}
-                    </span>
-                    {d.dataType === 'ENUM' && Array.isArray(d.enumOptions) ? (
-                      <select
-                        required={Boolean(d.required)}
-                        value={attrValues[d.code] || ''}
-                        onChange={(e) => setAttrValues((s) => ({ ...s, [d.code]: e.target.value }))}
-                      >
-                        <option value="">—</option>
-                        {d.enumOptions.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
-                    ) : d.dataType === 'BOOLEAN' ? (
-                      <select
-                        value={attrValues[d.code] || ''}
-                        onChange={(e) => setAttrValues((s) => ({ ...s, [d.code]: e.target.value }))}
-                      >
-                        <option value="">—</option>
-                        <option value="true">{copy.yes || 'بله'}</option>
-                        <option value="false">{copy.no || 'خیر'}</option>
-                      </select>
-                    ) : (
-                      <input
-                        required={Boolean(d.required)}
-                        inputMode={d.dataType === 'NUMBER' ? 'decimal' : 'text'}
-                        value={attrValues[d.code] || ''}
-                        onChange={(e) => setAttrValues((s) => ({ ...s, [d.code]: e.target.value }))}
-                      />
-                    )}
-                  </label>
-                ))}
-              </div>
+      {screen === 3 ? (
+        <form className="dv-post__body" onSubmit={(e) => void submitAll(e)}>
+          {attrDefs.map((d) =>
+            d.dataType === 'ENUM' || d.enumOptions?.length ? (
+              <button
+                key={d.id}
+                type="button"
+                className="dv-select-row"
+                onClick={() => {
+                  setActiveAttr(d);
+                  setSheet('attr');
+                }}
+              >
+                <span className="dv-select-row__label">
+                  {attrLabel(d, locale)}
+                  {d.required ? ' *' : ''}
+                </span>
+                <strong className={attrValues[d.code] ? 'has-value' : ''}>
+                  {attrValues[d.code] || copy.divar_choose || 'انتخاب'}
+                  <em>‹</em>
+                </strong>
+              </button>
             ) : (
-              <p className="panel-muted">
-                {isLeaf
-                  ? copy.seller_wizard_no_attrs
-                  : copy.divar_pick_category_first || 'اول دسته را کامل انتخاب کنید تا ویژگی‌ها بیاید.'}
-              </p>
-            )}
-
-            <label className="divar-post__field divar-post__price">
-              <span>{copy.divar_price || 'قیمت (تومان)'}</span>
-              <div className="divar-post__price-row">
+              <label key={d.id} className="dv-field">
+                <span>
+                  {attrLabel(d, locale)}
+                  {d.required ? ' *' : ''}
+                </span>
                 <input
-                  inputMode="numeric"
-                  value={priceToman}
-                  onChange={(e) => setPriceToman(e.target.value.replace(/[^\d]/g, ''))}
-                  placeholder="۰"
-                  required
+                  className="dv-input"
+                  value={attrValues[d.code] || ''}
+                  onChange={(e) => setAttrValues((s) => ({ ...s, [d.code]: e.target.value }))}
                 />
-                <em>{copy.divar_toman || 'تومان'}</em>
-              </div>
-            </label>
+              </label>
+            ),
+          )}
 
-            <label className="divar-post__field">
-              <span>{copy.divar_stock || 'موجودی (اختیاری)'}</span>
-              <input
-                inputMode="decimal"
-                value={stockQty}
-                onChange={(e) => setStockQty(e.target.value)}
-                placeholder={uomCode ? `${copy.seller_stock || 'موجودی'} · ${uomCode}` : ''}
-              />
-            </label>
+          <label className="dv-field">
+            <span>
+              {copy.divar_price || 'قیمت'} ({copy.divar_toman || 'تومان'}) <i>*</i>
+            </span>
+            <input
+              className="dv-input"
+              inputMode="numeric"
+              value={priceToman}
+              onChange={(e) => setPriceToman(formatGrouped(e.target.value))}
+              required
+            />
+            {priceNum > 0 ? <small className="dv-price-words">{formatTomanWords(priceNum, locale)}</small> : null}
+          </label>
 
-            <button type="button" className="divar-post__more" onClick={() => setShowMore((v) => !v)}>
-              {showMore
-                ? copy.divar_hide_more || 'بستن ویژگی‌های خاص'
-                : copy.divar_show_more || 'ویژگی‌های خاص'}
-            </button>
-            {showMore ? (
-              <div className="divar-post__attrs">
-                <label className="divar-post__field">
-                  <span>{copy.seller_wizard_uom}</span>
-                  <input value={uomCode} readOnly disabled />
-                </label>
-                <label className="divar-post__field">
-                  <span>MOQ</span>
-                  <input value={moq} onChange={(e) => setMoq(e.target.value)} />
-                </label>
-                <label className="divar-post__field">
-                  <span>{copy.listing_lead}</span>
-                  <input value={leadDays} onChange={(e) => setLeadDays(e.target.value)} />
-                </label>
-              </div>
-            ) : null}
-          </section>
+          <label className="dv-check">
+            <span>{copy.divar_price_fixed || 'قیمت مقطوع است'}</span>
+            <input type="checkbox" checked={priceFixed} onChange={(e) => setPriceFixed(e.target.checked)} />
+          </label>
+          <label className="dv-check">
+            <span>{copy.divar_want_trade || 'مایلم معاوضه کنم'}</span>
+            <input type="checkbox" checked={wantTrade} onChange={(e) => setWantTrade(e.target.checked)} />
+          </label>
 
-          <div className="divar-post__sticky">
-            <button type="submit" className="mp-btn mp-btn--primary mp-btn--block" disabled={busy || !orgId}>
-              {busy ? copy.panel_loading || '…' : copy.divar_submit || copy.seller_submit_listing || 'ثبت آگهی'}
+          <label className="dv-field">
+            <span>{copy.divar_stock || 'موجودی'}</span>
+            <input className="dv-input" inputMode="decimal" value={stockQty} onChange={(e) => setStockQty(e.target.value)} />
+          </label>
+
+          <div className="dv-post__footer">
+            <button type="submit" className="dv-btn dv-btn--block" disabled={busy || !orgId}>
+              {busy ? '…' : copy.divar_submit || 'ثبت آگهی'}
             </button>
           </div>
         </form>
+      ) : null}
+
+      {sheet ? (
+        <div className="dv-sheet" role="dialog" aria-modal>
+          <header className="dv-sheet__head">
+            <button type="button" onClick={() => { setSheet(null); setActiveAttr(null); }}>
+              {copy.seller_wizard_back || 'بازگشت'}
+            </button>
+            <strong>
+              {sheet === 'category'
+                ? copy.divar_category || 'دسته‌بندی'
+                : sheet === 'location'
+                  ? copy.divar_ad_place || 'مکان آگهی'
+                  : activeAttr
+                    ? attrLabel(activeAttr, locale)
+                    : copy.divar_features || 'ویژگی‌ها'}
+            </strong>
+            <span />
+          </header>
+
+          {sheet === 'category' ? (
+            <div className="dv-sheet__body">
+              <input
+                className="dv-input"
+                value={catQuery}
+                onChange={(e) => setCatQuery(e.target.value)}
+                placeholder={copy.seller_wizard_cat_search_ph}
+              />
+              {catQuery.trim() ? (
+                <ul className="dv-sheet__list">
+                  {searchHits.map((c) => (
+                    <li key={c.id}>
+                      <button type="button" onClick={() => selectCategory(c.id)}>
+                        {pathFor(categories, c.id).map((p) => catLabel(p, locale)).join(' › ')}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <>
+                  <div className="dv-sheet__crumbs">
+                    <button type="button" onClick={() => setBrowseParentId(null)}>
+                      {copy.seller_wizard_browse_root}
+                    </button>
+                    {browsePath.map((p) => (
+                      <button key={p.id} type="button" onClick={() => setBrowseParentId(p.id)}>
+                        {catLabel(p, locale)}
+                      </button>
+                    ))}
+                  </div>
+                  <ul className="dv-sheet__list">
+                    {browseChildren.map((c) => {
+                      const hasKids = (childrenMap.get(c.id) || []).length > 0;
+                      return (
+                        <li key={c.id}>
+                          <button type="button" onClick={() => selectCategory(c.id)}>
+                            <span>{catLabel(c, locale)}</span>
+                            <em>{hasKids ? '‹' : ''}</em>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {sheet === 'location' ? (
+            <div className="dv-sheet__body">
+              {facilities.length ? (
+                <label className="dv-field">
+                  <span>{copy.seller_facilities || 'انبارها'}</span>
+                  <select
+                    className="dv-input"
+                    value={facilityId}
+                    onChange={(e) => setFacilityId(e.target.value)}
+                  >
+                    <option value="">{copy.seller_no_facility}</option>
+                    {facilities.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                        {f.address?.city ? ` — ${f.address.city}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <LocationMapPicker
+                value={mapLoc}
+                onChange={setMapLoc}
+                copy={copy}
+                height={280}
+              />
+              <button
+                type="button"
+                className="dv-btn dv-btn--block"
+                onClick={() => {
+                  if (!mapLoc && !facilityId) {
+                    setError(copy.divar_need_location || 'مکان را مشخص کنید');
+                    return;
+                  }
+                  setSheet(null);
+                }}
+              >
+                {copy.divar_confirm_location || 'تأیید مکان'}
+              </button>
+            </div>
+          ) : null}
+
+          {sheet === 'attr' && activeAttr ? (
+            <div className="dv-sheet__body">
+              {Array.isArray(activeAttr.enumOptions) && activeAttr.enumOptions.length ? (
+                <ul className="dv-sheet__list">
+                  {activeAttr.enumOptions.map((opt) => (
+                    <li key={opt}>
+                      <button
+                        type="button"
+                        className={attrValues[activeAttr.code] === opt ? 'is-active' : undefined}
+                        onClick={() => {
+                          setAttrValues((s) => ({ ...s, [activeAttr.code]: opt }));
+                          setSheet(null);
+                          setActiveAttr(null);
+                        }}
+                      >
+                        {opt}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <label className="dv-field">
+                  <span>{attrLabel(activeAttr, locale)}</span>
+                  <input
+                    className="dv-input"
+                    autoFocus
+                    value={attrValues[activeAttr.code] || ''}
+                    onChange={(e) => setAttrValues((s) => ({ ...s, [activeAttr!.code]: e.target.value }))}
+                  />
+                  <button
+                    type="button"
+                    className="dv-btn dv-btn--block"
+                    style={{ marginTop: 12 }}
+                    onClick={() => {
+                      setSheet(null);
+                      setActiveAttr(null);
+                    }}
+                  >
+                    {copy.divar_confirm || 'تأیید'}
+                  </button>
+                </label>
+              )}
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

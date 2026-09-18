@@ -261,6 +261,11 @@ model User {
   phone        String?      @unique
   passwordHash String
   fullName     String?
+  firstName    String?
+  lastName     String?
+  /// Hashed national ID (never store plaintext).
+  nationalIdHash  String?
+  nationalIdLast4 String?
   platformRole PlatformRole @default(USER)
   isActive     Boolean      @default(true)
   createdAt    DateTime     @default(now())

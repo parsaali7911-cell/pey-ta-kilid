@@ -2,6 +2,7 @@ import {
   ConflictException,
   Injectable,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
@@ -10,6 +11,22 @@ import { appEnv } from '../env';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+
+function hashNationalId(nationalId: string): string {
+  return createHash('sha256').update(`peytakilid:nid:${nationalId}`).digest('hex');
+}
+
+function assertValidIranNationalId(code: string) {
+  if (!/^\d{10}$/.test(code) || /^(\d)\1{9}$/.test(code)) {
+    throw new BadRequestException('Invalid national ID');
+  }
+  const check = Number(code[9]);
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += Number(code[i]) * (10 - i);
+  const r = sum % 11;
+  const ok = (r < 2 && check === r) || (r >= 2 && check === 11 - r);
+  if (!ok) throw new BadRequestException('Invalid national ID');
+}
 
 @Injectable()
 export class AuthService {
@@ -22,12 +39,31 @@ export class AuthService {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
     if (existing) throw new ConflictException('Email already registered');
 
+    const firstName = dto.firstName?.trim() || null;
+    const lastName = dto.lastName?.trim() || null;
+    const fullName =
+      dto.fullName?.trim() ||
+      ([firstName, lastName].filter(Boolean).join(' ') || null);
+
+    let nationalIdHash: string | null = null;
+    let nationalIdLast4: string | null = null;
+    if (dto.nationalId) {
+      const nid = dto.nationalId.replace(/\D/g, '');
+      assertValidIranNationalId(nid);
+      nationalIdHash = hashNationalId(nid);
+      nationalIdLast4 = nid.slice(-4);
+    }
+
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = await this.prisma.user.create({
       data: {
         email: dto.email.toLowerCase(),
         passwordHash,
-        fullName: dto.fullName,
+        fullName,
+        firstName,
+        lastName,
+        nationalIdHash,
+        nationalIdLast4,
       },
     });
 

@@ -17,6 +17,7 @@ import { SellerListingWizard } from '@/components/seller/SellerListingWizard';
 import { SellerListingEditor } from '@/components/seller/SellerListingEditor';
 import { PROFESSIONAL_SPECIALTY_OPTIONS } from '@/lib/lexicon/specialties';
 import { WaChatThread } from '@/components/commerce/WaChatThread';
+import { LocationMapPicker, type MapLocationValue } from '@/components/LocationMapPicker';
 
 type Org = {
   id: string;
@@ -171,11 +172,14 @@ export default function SellerClient({
   // facility form
   const [facName, setFacName] = useState('');
   const [facType, setFacType] = useState('FACTORY');
-  const [facCity, setFacCity] = useState(initialCity || 'Tehran');
-  const [facProvince, setFacProvince] = useState('Tehran');
+  const [facCity, setFacCity] = useState(initialCity || '');
+  const [facProvince, setFacProvince] = useState('');
   const [facLine1, setFacLine1] = useState('');
-  const [facLat, setFacLat] = useState('35.6892');
-  const [facLng, setFacLng] = useState('51.3890');
+  const [facMap, setFacMap] = useState<MapLocationValue | null>(
+    initialCity
+      ? { latitude: 35.6892, longitude: 51.389, city: initialCity, label: initialCity }
+      : null,
+  );
   const [facPublic, setFacPublic] = useState(true);
 
   const [mediaListingId, setMediaListingId] = useState('');
@@ -275,6 +279,25 @@ export default function SellerClient({
   );
 
   const activeOrg = orgs.find((o) => o.id === orgId) || null;
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('peytakilid:seller_onboard_location');
+      if (!raw) return;
+      const loc = JSON.parse(raw) as MapLocationValue;
+      if (loc?.latitude && loc?.longitude) {
+        setFacMap(loc);
+        if (loc.city) setFacCity(loc.city);
+        if (loc.province) setFacProvince(loc.province);
+        if (loc.line1) setFacLine1(loc.line1);
+        if (!facName && loc.city) setFacName(loc.city);
+      }
+      sessionStorage.removeItem('peytakilid:seller_onboard_location');
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (activeOrg?.primarySpecialty) setProSpecialty(activeOrg.primarySpecialty);
@@ -416,12 +439,12 @@ export default function SellerClient({
           isProfessional: asPro,
           primarySpecialty: asPro ? 'contracting' : undefined,
           location: {
-            city: facCity.trim() || initialCity || 'Tehran',
-            province: facProvince.trim() || undefined,
+            city: (facMap?.city || facCity).trim() || 'Tehran',
+            province: (facMap?.province || facProvince).trim() || undefined,
             countryCode: 'IR',
-            line1: facLine1.trim() || facCity.trim() || 'Tehran',
-            latitude: Number(facLat) || undefined,
-            longitude: Number(facLng) || undefined,
+            line1: (facMap?.line1 || facLine1 || facMap?.city || facCity).trim() || 'Tehran',
+            latitude: facMap?.latitude,
+            longitude: facMap?.longitude,
           },
         },
       });
@@ -441,6 +464,10 @@ export default function SellerClient({
   async function createFacility(e: FormEvent) {
     e.preventDefault();
     if (!orgId) return;
+    if (!facMap) {
+      setError(copy.seller_map_required || 'موقعیت را روی نقشه مشخص کنید');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -454,14 +481,16 @@ export default function SellerClient({
           isPublicLocation: facPublic,
           address: {
             countryCode: 'IR',
-            province: facProvince,
-            city: facCity,
-            line1: facLine1 || facCity,
+            province: facMap?.province || facProvince,
+            city: facMap?.city || facCity,
+            line1: facMap?.line1 || facLine1 || facMap?.city || facCity,
           },
-          geoPoint: {
-            latitude: Number(facLat),
-            longitude: Number(facLng),
-          },
+          geoPoint: facMap
+            ? {
+                latitude: facMap.latitude,
+                longitude: facMap.longitude,
+              }
+            : undefined,
         },
       });
       setMsg(copy.seller_facility_created);
@@ -689,7 +718,11 @@ export default function SellerClient({
               <div className="panel-grid-2">
                 <label>
                   {copy.seller_city}
-                  <input required value={facCity} onChange={(e) => setFacCity(e.target.value)} />
+                  <input
+                    required
+                    value={facCity}
+                    onChange={(e) => setFacCity(e.target.value)}
+                  />
                 </label>
                 <label>
                   {copy.seller_province}
@@ -700,15 +733,19 @@ export default function SellerClient({
                 {copy.seller_address}
                 <input value={facLine1} onChange={(e) => setFacLine1(e.target.value)} placeholder={copy.seller_address_ph} />
               </label>
-              <div className="panel-grid-2">
-                <label>
-                  Lat
-                  <input value={facLat} onChange={(e) => setFacLat(e.target.value)} />
-                </label>
-                <label>
-                  Lng
-                  <input value={facLng} onChange={(e) => setFacLng(e.target.value)} />
-                </label>
+              <div className="seller-map-block">
+                <strong>{copy.seller_map_pick || 'انتخاب روی نقشه'}</strong>
+                <LocationMapPicker
+                  value={facMap}
+                  onChange={(loc) => {
+                    setFacMap(loc);
+                    if (loc.city) setFacCity(loc.city);
+                    if (loc.province) setFacProvince(loc.province);
+                    if (loc.line1) setFacLine1(loc.line1);
+                  }}
+                  copy={copy}
+                  height={260}
+                />
               </div>
               <label className="panel-check">
                 <input type="checkbox" checked={facPublic} onChange={(e) => setFacPublic(e.target.checked)} />
@@ -722,10 +759,7 @@ export default function SellerClient({
         ) : null}
 
         {tab === 'listing' ? (
-          <section className="panel-card">
-            <h2>{copy.seller_listings}</h2>
-            <p className="panel-muted">{copy.seller_listing_flow}</p>
-
+          <section className="panel-card panel-card--post">
             <SellerListingWizard
               locale={locale}
               copy={copy}
@@ -745,7 +779,8 @@ export default function SellerClient({
               }}
             />
 
-            <ul className="panel-list">
+            <h2 style={{ padding: '0 1rem' }}>{copy.seller_listings}</h2>
+            <ul className="panel-list" style={{ padding: '0 1rem 1rem' }}>
               {listings.map((l) => {
                 const canEditContent =
                   l.status === 'DRAFT' ||
